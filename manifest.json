@@ -1,0 +1,83 @@
+{
+  "manifest_version": 3,
+  "name": "Caption Lite",
+  "version": "0.1.0",
+  "description": "本地提取并浏览 YouTube 和 Bilibili 已有字幕。",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://*.bilibili.com/*",
+    "https://api.bilibili.com/*",
+    "https://*.hdslb.com/*"
+  ],
+  "icons": {
+    "16": "assets/icons/icon-16.png",
+    "32": "assets/icons/icon-32.png",
+    "48": "assets/icons/icon-48.png",
+    "128": "assets/icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "打开 Caption Lite",
+    "default_icon": {
+      "16": "assets/icons/icon-16.png",
+      "32": "assets/icons/icon-32.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/service-worker.js"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/sidepanel.html",
+        "src/sidepanel.css"
+      ],
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://*.bilibili.com/*"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.youtube.com/*"
+      ],
+      "js": [
+        "src/parsers.js",
+        "src/youtube-main.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.bilibili.com/*"
+      ],
+      "js": [
+        "src/bilibili-main.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://*.bilibili.com/*"
+      ],
+      "js": [
+        "src/parsers.js",
+        "src/sidepanel.js",
+        "src/content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

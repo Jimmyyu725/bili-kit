@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Caption Lite</title>
+    <link rel="stylesheet" href="sidepanel.css">
+  </head>
+  <body data-caption-lite-panel>
+    <header class="header">
+      <div class="header-main">
+        <div class="title-line">
+          <h1>字幕列表</h1>
+          <span id="source-badge" class="badge">本地</span>
+        </div>
+        <p id="video-title">等待视频</p>
+      </div>
+      <div class="header-controls" aria-label="字幕控制">
+        <select id="track-select" aria-label="字幕语言" disabled></select>
+        <button id="refresh-button" type="button" title="重新读取字幕" aria-label="重新读取字幕">↻</button>
+      </div>
+    </header>
+
+    <section class="search-row">
+      <input id="search-input" type="search" placeholder="搜索字幕" aria-label="搜索字幕">
+    </section>
+
+    <div class="meta-row">
+      <p id="status" class="status">打开 YouTube 或 Bilibili 视频后再试。</p>
+      <p id="count" class="count"></p>
+    </div>
+    <main id="caption-list" class="caption-list" aria-live="polite"></main>
+
+    <footer class="footer">
+      <button id="copy-button" type="button" disabled>复制（含时间）</button>
+      <button id="download-srt-button" type="button" disabled>下载 SRT</button>
+      <button id="download-txt-button" type="button" disabled>下载 TXT</button>
+    </footer>
+
+    <script src="parsers.js"></script>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>

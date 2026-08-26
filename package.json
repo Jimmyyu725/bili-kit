@@ -1,0 +1,8 @@
+{
+  "name": "caption-lite",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node tests/parsers.test.mjs && node tests/manifest.test.mjs"
+  }
+}

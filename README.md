@@ -1,0 +1,59 @@
+# Caption Lite
+
+一个仅供个人学习使用的本地 Chrome 字幕提取扩展。它保留 vCaptions 中最实用的字幕抓取流程，但去除了账号、统计、AI、付费和云端同步功能。
+
+## 当前功能
+
+- 自动提取 YouTube 视频提供的全部字幕语言，无需先开启 CC
+- 读取并按 YouTube 和 Bilibili 原生章节分组
+- 提取 Bilibili 视频提供的全部字幕语言
+- 按 Bilibili 原生章节分组显示字幕
+- 在 Chrome 原生侧边栏显示字幕
+- 自动把字幕面板嵌入 YouTube 和 Bilibili 视频右侧
+- 网页内字幕窗口可独立滚动，默认不会跟随播放位置跳动
+- 点击字幕跳转视频时间
+- 自动跟随当前播放位置
+- 搜索、复制带时间戳的字幕
+- 下载 SRT 或 TXT
+- 字幕只保存在当前浏览器会话的内存中
+
+## 本地安装
+
+1. 在 Chrome 地址栏打开 `chrome://extensions`。
+2. 打开右上角的“开发者模式”。
+3. 点击“加载已解压的扩展程序”。
+4. 选择整个 `caption-lite` 文件夹。
+5. 将 Caption Lite 固定到工具栏。
+
+## 使用方法
+
+### YouTube
+
+1. 打开并播放一个有字幕的 YouTube 视频。
+2. 点击工具栏里的 Caption Lite 图标打开侧边栏。
+
+扩展会自动读取视频提供的手动字幕和自动生成字幕；YouTube 页面内切换视频时也会自动更新。
+
+### Bilibili
+
+1. 打开 Bilibili 视频页面。
+2. 点击 Caption Lite 图标。
+3. 扩展会自动读取视频提供的字幕列表。
+
+部分 Bilibili 字幕只有登录后才能读取。
+
+修改本地代码后，需要先在 `chrome://extensions` 点击 Caption Lite 的刷新按钮，再刷新视频页面。
+
+## 测试
+
+项目没有第三方依赖。若本机已安装 Node.js，可运行：
+
+```bash
+npm test
+```
+
+## 已知限制
+
+- 仅支持 YouTube 和 Bilibili，不会把无字幕视频自动转录成文字。
+- YouTube 或 Bilibili 修改播放器接口后，抓取代码可能需要更新。
+- 本项目用于个人学习，不包含 vCaptions 的品牌、图标、账号或后端服务。

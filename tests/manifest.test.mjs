@@ -55,6 +55,11 @@ assert.match(contentSource, /document\.querySelector\("\.video-pod"\)/);
 assert.match(contentSource, /playlistContainer\.style\.paddingTop/);
 assert.match(contentSource, /embeddedPanelCollapsed\s*\? COLLAPSED_PANEL_HEIGHT/);
 assert.match(contentSource, /COLLAPSED_PANEL_HEIGHT = 140/);
+assert.match(contentSource, /function scheduleBilibiliRetry\(pageKey\)/);
+assert.match(contentSource, /bilibiliRetryDelay \* 1\.6/);
+assert.match(contentSource, /BILIBILI_MAX_RETRY_DELAY = 10_000/);
+assert.match(contentSource, /loadBilibili\(true\)/);
+assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.pageKey\)/);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
 assert.match(panelSource, /setPlayback\(currentMs\)/);

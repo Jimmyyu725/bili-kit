@@ -15,6 +15,9 @@
   let currentYouTubeVideoId = "";
   let currentBilibiliPageKey = "";
   let bilibiliPayloadId = 0;
+  let bilibiliRetryTimer = null;
+  let bilibiliRetryPageKey = "";
+  let bilibiliRetryDelay = 1500;
   let lastUrl = location.href;
   let boundVideo = null;
   let lastPlaybackSentAt = 0;
@@ -30,6 +33,7 @@
   let paddedYouTubeSidebar = null;
   let originalSidebarPaddingTop = "";
   const COLLAPSED_PANEL_HEIGHT = 140;
+  const BILIBILI_MAX_RETRY_DELAY = 10_000;
 
   function sendRuntimeMessage(message) {
     if (!chrome.runtime?.id) return Promise.resolve();
@@ -65,10 +69,34 @@
     return { videoId, pageNumber, pageKey: `${videoId}:${pageNumber}` };
   }
 
+  function resetBilibiliRetry(pageKey = "") {
+    clearTimeout(bilibiliRetryTimer);
+    bilibiliRetryTimer = null;
+    bilibiliRetryPageKey = pageKey;
+    bilibiliRetryDelay = 1500;
+  }
+
+  function scheduleBilibiliRetry(pageKey) {
+    if (pageKey !== bilibiliRetryPageKey) resetBilibiliRetry(pageKey);
+    if (bilibiliRetryTimer) return;
+    bilibiliRetryTimer = setTimeout(() => {
+      bilibiliRetryTimer = null;
+      if (getBilibiliIdentity()?.pageKey !== pageKey) return;
+      bilibiliRetryDelay = Math.min(Math.round(bilibiliRetryDelay * 1.6), BILIBILI_MAX_RETRY_DELAY);
+      loadBilibili(true);
+    }, bilibiliRetryDelay);
+  }
+
   function loadBilibili(force = false) {
     const identity = getBilibiliIdentity();
-    if (!identity) return;
+    if (!identity) {
+      resetBilibiliRetry();
+      return;
+    }
     if (!force && identity.pageKey === currentBilibiliPageKey) return;
+    if (identity.pageKey !== bilibiliRetryPageKey) resetBilibiliRetry(identity.pageKey);
+    clearTimeout(bilibiliRetryTimer);
+    bilibiliRetryTimer = null;
     currentBilibiliPageKey = identity.pageKey;
 
     publishState({
@@ -101,9 +129,10 @@
         source: "bilibili",
         videoId: identity.videoId,
         status: "error",
-        message: `字幕读取失败：${String(payload.error || "未知错误")}`,
+        message: `字幕读取失败，正在自动重试：${String(payload.error || "未知错误")}`,
         tracks: []
       });
+      scheduleBilibiliRetry(identity.pageKey);
       return;
     }
 
@@ -127,6 +156,8 @@
 
     if (currentPayload !== bilibiliPayloadId || getBilibiliIdentity()?.pageKey !== identity.pageKey) return;
     const status = tracks.length ? "ready" : "empty";
+    if (tracks.length) resetBilibiliRetry(identity.pageKey);
+    else scheduleBilibiliRetry(identity.pageKey);
     await publishState({
       source: "bilibili",
       videoId: identity.videoId,
@@ -134,10 +165,10 @@
       message: tracks.length
         ? ""
         : rawTracks.length
-          ? "找到了字幕，但字幕文件下载失败。请点击刷新重试。"
+          ? "字幕文件暂未就绪，正在自动重试……"
           : payload.needLogin
-            ? "没有取得字幕。请确认 Bilibili 已登录，然后刷新页面。"
-            : "这个视频没有可用字幕。",
+            ? "暂未取得字幕。请确认 Bilibili 已登录，扩展会继续自动重试。"
+            : "暂未发现字幕，正在自动重试……",
       title: String(payload.title || document.title),
       chapters: parseBilibiliChapters(payload.viewPoints).slice(0, 100),
       tracks

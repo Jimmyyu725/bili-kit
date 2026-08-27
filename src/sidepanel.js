@@ -3,7 +3,7 @@
 
   const mountedRoots = new WeakSet();
 
-  function mount(root = document, { embedded = false } = {}) {
+  function mount(root = document, { embedded = false, onCollapsedChange = null } = {}) {
     if (mountedRoots.has(root)) return null;
     mountedRoots.add(root);
 
@@ -18,6 +18,7 @@
       sourceBadge: root.querySelector("#source-badge"),
       trackSelect: root.querySelector("#track-select"),
       refreshButton: root.querySelector("#refresh-button"),
+      collapseButton: root.querySelector("#collapse-button"),
       searchInput: root.querySelector("#search-input"),
       status: root.querySelector("#status"),
       count: root.querySelector("#count"),
@@ -39,6 +40,7 @@
   let activeRow = null;
   let autoScrollActive = true;
   let autoScrollResumeTimer = null;
+  let collapsed = false;
 
   function sendMessage(message) {
     return chrome.runtime.sendMessage(message).catch(() => null);
@@ -239,7 +241,7 @@
   const wheelTarget = embedded && root.host ? root.host : root;
   const handleWheel = (event) => {
     pauseAutoScrollTemporarily();
-    if (!embedded) return;
+    if (!embedded || collapsed) return;
     event.stopPropagation();
     if (!event.deltaY) return;
     if (!event.composedPath().includes(elements.captionList)) {
@@ -260,6 +262,16 @@
     if (activeTabId == null) return;
     elements.status.textContent = "正在刷新……";
     sendMessage({ type: "REFRESH_CAPTIONS", tabId: activeTabId });
+  });
+  elements.collapseButton.addEventListener("click", () => {
+    if (!embedded) return;
+    collapsed = !collapsed;
+    root.querySelector(".caption-lite-app")?.classList.toggle("collapsed", collapsed);
+    elements.collapseButton.textContent = collapsed ? "⌄" : "⌃";
+    elements.collapseButton.title = collapsed ? "展开字幕" : "折叠字幕";
+    elements.collapseButton.setAttribute("aria-label", elements.collapseButton.title);
+    elements.collapseButton.setAttribute("aria-expanded", String(!collapsed));
+    onCollapsedChange?.(collapsed);
   });
   elements.copyButton.addEventListener("click", async () => {
     const captions = getSelectedTrack()?.captions || [];

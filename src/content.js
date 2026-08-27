@@ -24,8 +24,12 @@
   let embeddedPanel = null;
   let observedPlayer = null;
   let playerResizeObserver = null;
+  let embeddedPanelCollapsed = false;
+  let paddedBilibiliContainer = null;
+  let originalBilibiliPaddingTop = "";
   let paddedYouTubeSidebar = null;
   let originalSidebarPaddingTop = "";
+  const COLLAPSED_PANEL_HEIGHT = 88;
 
   function sendRuntimeMessage(message) {
     if (!chrome.runtime?.id) return Promise.resolve();
@@ -306,6 +310,12 @@
     embeddedPanel = null;
     embedRoot?.remove();
     embedRoot = null;
+    embeddedPanelCollapsed = false;
+    if (paddedBilibiliContainer) {
+      paddedBilibiliContainer.style.paddingTop = originalBilibiliPaddingTop;
+      paddedBilibiliContainer = null;
+      originalBilibiliPaddingTop = "";
+    }
     if (paddedYouTubeSidebar) {
       paddedYouTubeSidebar.style.paddingTop = originalSidebarPaddingTop;
       paddedYouTubeSidebar = null;
@@ -321,7 +331,8 @@
     root.id = "caption-lite-embed";
     root.style.cssText = [
       "width:100%",
-      "min-height:360px",
+      "min-height:0",
+      "box-sizing:border-box",
       "position:absolute",
       "z-index:20",
       "pointer-events:auto",
@@ -333,7 +344,7 @@
     return root;
   }
 
-  function placeEmbedRoot(anchor, height, below = false) {
+  function placeEmbedRoot(anchor, height) {
     const rect = anchor.getBoundingClientRect();
     if (rect.width < 280 || rect.height <= 0) {
       embedRoot.style.display = "none";
@@ -341,7 +352,7 @@
     }
     embedRoot.style.display = "block";
     embedRoot.style.left = `${window.scrollX + rect.left}px`;
-    embedRoot.style.top = `${window.scrollY + (below ? rect.bottom + 12 : rect.top)}px`;
+    embedRoot.style.top = `${window.scrollY + rect.top}px`;
     embedRoot.style.width = `${Math.round(rect.width)}px`;
     embedRoot.style.height = `${Math.round(height)}px`;
   }
@@ -365,7 +376,13 @@
     const shadowRoot = host.attachShadow({ mode: "open" });
     shadowRoot.append(style, app);
     if (!host.isConnected) return;
-    embeddedPanel = globalThis.CaptionLitePanel.mount(shadowRoot, { embedded: true });
+    embeddedPanel = globalThis.CaptionLitePanel.mount(shadowRoot, {
+      embedded: true,
+      onCollapsedChange(collapsed) {
+        embeddedPanelCollapsed = collapsed;
+        mountSitePanel();
+      }
+    });
     if (latestState) embeddedPanel?.setState(latestState);
     embeddedPanel?.setPlayback(latestPlaybackMs);
   }
@@ -395,12 +412,27 @@
     const updateHeight = () => {
       if (!embedRoot?.isConnected) return;
       const playlist = document.querySelector(".video-pod");
-      const hasPlaylist = playlist?.getBoundingClientRect().height > 0;
-      placeEmbedRoot(
-        hasPlaylist ? playlist : danmakuBox,
-        Math.max(360, player.getBoundingClientRect().height),
-        hasPlaylist
-      );
+      const playlistContainer = playlist?.getBoundingClientRect().height > 0
+        ? playlist.parentElement
+        : null;
+      const height = embeddedPanelCollapsed
+        ? COLLAPSED_PANEL_HEIGHT
+        : Math.max(360, player.getBoundingClientRect().height);
+
+      if (paddedBilibiliContainer !== playlistContainer) {
+        if (paddedBilibiliContainer) {
+          paddedBilibiliContainer.style.paddingTop = originalBilibiliPaddingTop;
+        }
+        paddedBilibiliContainer = playlistContainer;
+        originalBilibiliPaddingTop = playlistContainer?.style.paddingTop || "";
+      }
+
+      if (playlistContainer) {
+        playlistContainer.style.paddingTop = `${Math.round(height + 12)}px`;
+        placeEmbedRoot(playlistContainer, height);
+      } else {
+        placeEmbedRoot(danmakuBox, height);
+      }
     };
     updateHeight();
 
@@ -432,7 +464,9 @@
         });
     }
 
-    const height = Math.min(window.innerHeight * 0.72, 720);
+    const height = embeddedPanelCollapsed
+      ? COLLAPSED_PANEL_HEIGHT
+      : Math.min(window.innerHeight * 0.72, 720);
     if (paddedYouTubeSidebar !== sidebar) {
       if (paddedYouTubeSidebar) paddedYouTubeSidebar.style.paddingTop = originalSidebarPaddingTop;
       paddedYouTubeSidebar = sidebar;

@@ -54,6 +54,7 @@ assert.doesNotMatch(contentSource, /danmakuBox\.before\(|sidebar\.prepend\(/);
 assert.match(contentSource, /document\.querySelector\("\.video-pod"\)/);
 assert.match(contentSource, /playlistContainer\.style\.paddingTop/);
 assert.match(contentSource, /embeddedPanelCollapsed\s*\? COLLAPSED_PANEL_HEIGHT/);
+assert.match(contentSource, /COLLAPSED_PANEL_HEIGHT = 140/);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
 assert.match(panelSource, /setPlayback\(currentMs\)/);
@@ -82,6 +83,7 @@ assert.match(panelStyles, /\.caption-row \.text \{ font-size: 17px; \}/);
 assert.match(panelStyles, /font-family: ui-monospace/);
 assert.match(panelStyles, /box-shadow: inset 3px 0 var\(--accent\)/);
 assert.match(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.caption-list/);
+assert.doesNotMatch(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.footer/);
 
 const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-worker.js"), "utf8");
 assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.googleapis\.com|private-config/);

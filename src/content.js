@@ -29,7 +29,7 @@
   let originalBilibiliPaddingTop = "";
   let paddedYouTubeSidebar = null;
   let originalSidebarPaddingTop = "";
-  const COLLAPSED_PANEL_HEIGHT = 88;
+  const COLLAPSED_PANEL_HEIGHT = 140;
 
   function sendRuntimeMessage(message) {
     if (!chrome.runtime?.id) return Promise.resolve();

@@ -117,8 +117,7 @@ h1 { margin: 0; font-size: 21px; line-height: 1.2; }
 
 .caption-lite-app.embedded.collapsed .search-row,
 .caption-lite-app.embedded.collapsed .meta-row,
-.caption-lite-app.embedded.collapsed .caption-list,
-.caption-lite-app.embedded.collapsed .footer {
+.caption-lite-app.embedded.collapsed .caption-list {
   display: none;
 }
 

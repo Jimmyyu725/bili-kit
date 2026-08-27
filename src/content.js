@@ -333,7 +333,7 @@
     return root;
   }
 
-  function placeEmbedRoot(anchor, height) {
+  function placeEmbedRoot(anchor, height, below = false) {
     const rect = anchor.getBoundingClientRect();
     if (rect.width < 280 || rect.height <= 0) {
       embedRoot.style.display = "none";
@@ -341,7 +341,7 @@
     }
     embedRoot.style.display = "block";
     embedRoot.style.left = `${window.scrollX + rect.left}px`;
-    embedRoot.style.top = `${window.scrollY + rect.top}px`;
+    embedRoot.style.top = `${window.scrollY + (below ? rect.bottom + 12 : rect.top)}px`;
     embedRoot.style.width = `${Math.round(rect.width)}px`;
     embedRoot.style.height = `${Math.round(height)}px`;
   }
@@ -394,7 +394,13 @@
 
     const updateHeight = () => {
       if (!embedRoot?.isConnected) return;
-      placeEmbedRoot(danmakuBox, Math.max(360, player.getBoundingClientRect().height));
+      const playlist = document.querySelector(".video-pod");
+      const hasPlaylist = playlist?.getBoundingClientRect().height > 0;
+      placeEmbedRoot(
+        hasPlaylist ? playlist : danmakuBox,
+        Math.max(360, player.getBoundingClientRect().height),
+        hasPlaylist
+      );
     };
     updateHeight();
 

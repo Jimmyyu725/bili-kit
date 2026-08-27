@@ -51,6 +51,8 @@ assert.match(contentSource, /function mountYouTubePanel\(\)/);
 assert.match(contentSource, /ytd-watch-flexy #secondary-inner/);
 assert.match(contentSource, /document\.body\.append\(embedRoot\)/);
 assert.doesNotMatch(contentSource, /danmakuBox\.before\(|sidebar\.prepend\(/);
+assert.match(contentSource, /document\.querySelector\("\.video-pod"\)/);
+assert.match(contentSource, /below \? rect\.bottom \+ 12 : rect\.top/);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
 assert.match(panelSource, /setPlayback\(currentMs\)/);

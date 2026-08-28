@@ -221,8 +221,10 @@
   async function loadActiveState() {
     const response = await sendMessage({ type: "GET_ACTIVE_STATE" });
     activeTabId = response?.tabId ?? null;
-    currentState = response?.state ?? null;
-    renderState();
+    if (!embedded || response?.state) {
+      currentState = response?.state ?? null;
+      renderState();
+    }
   }
 
   elements.trackSelect.addEventListener("change", () => {

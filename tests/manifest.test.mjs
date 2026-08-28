@@ -65,6 +65,7 @@ const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "ut
 assert.match(panelSource, /setPlayback\(currentMs\)/);
 assert.match(panelSource, /captionList\.scrollTo\(/);
 assert.match(panelSource, /const wheelTarget = embedded && root\.host/);
+assert.match(panelSource, /if \(!embedded \|\| response\?\.state\)/);
 assert.match(panelSource, /atBottom && event\.deltaY > 0/);
 assert.doesNotMatch(panelSource, /elements\.autoScroll/);
 assert.match(panelSource, /pauseAutoScrollTemporarily/);

@@ -51,17 +51,29 @@ assert.match(contentSource, /function mountYouTubePanel\(\)/);
 assert.match(contentSource, /ytd-watch-flexy #secondary-inner/);
 assert.match(contentSource, /document\.body\.append\(embedRoot\)/);
 assert.doesNotMatch(contentSource, /danmakuBox\.before\(|sidebar\.prepend\(/);
+assert.match(contentSource, /document\.querySelector\("\.video-pod"\)/);
+assert.match(contentSource, /playlistContainer\.style\.paddingTop/);
+assert.match(contentSource, /embeddedPanelCollapsed\s*\? COLLAPSED_PANEL_HEIGHT/);
+assert.match(contentSource, /COLLAPSED_PANEL_HEIGHT = 140/);
+assert.match(contentSource, /function scheduleBilibiliRetry\(pageKey\)/);
+assert.match(contentSource, /bilibiliRetryDelay \* 1\.6/);
+assert.match(contentSource, /BILIBILI_MAX_RETRY_DELAY = 10_000/);
+assert.match(contentSource, /loadBilibili\(true\)/);
+assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.pageKey\)/);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
 assert.match(panelSource, /setPlayback\(currentMs\)/);
 assert.match(panelSource, /captionList\.scrollTo\(/);
 assert.match(panelSource, /const wheelTarget = embedded && root\.host/);
+assert.match(panelSource, /if \(!embedded \|\| response\?\.state\)/);
 assert.match(panelSource, /atBottom && event\.deltaY > 0/);
 assert.doesNotMatch(panelSource, /elements\.autoScroll/);
 assert.match(panelSource, /pauseAutoScrollTemporarily/);
 assert.match(panelSource, /let autoScrollActive = true/);
 assert.match(panelSource, /autoScrollActive = false/);
 assert.match(panelSource, /highlightCurrentCaption\(true\);\s*\}, 3000\)/);
+assert.match(panelSource, /onCollapsedChange\?\.\(collapsed\)/);
+assert.match(panelSource, /aria-expanded/);
 assert.match(panelSource, /\[\$\{formatClock\(caption\.startMs\)\}\] \$\{caption\.text\}/);
 assert.doesNotMatch(panelSource, /TRANSLATE_CAPTIONS|Google 翻译/);
 
@@ -70,11 +82,14 @@ assert.doesNotMatch(panelMarkup, /translate-row|Google 翻译/);
 assert.doesNotMatch(panelMarkup, /auto-scroll|自动跟随/);
 assert.match(panelMarkup, /<h1>字幕列表<\/h1>/);
 assert.match(panelMarkup, /复制（含时间）/);
+assert.match(panelMarkup, /id="collapse-button"/);
 
 const panelStyles = await readFile(resolve(projectRoot, "src/sidepanel.css"), "utf8");
 assert.match(panelStyles, /\.caption-row \.text \{ font-size: 17px; \}/);
 assert.match(panelStyles, /font-family: ui-monospace/);
 assert.match(panelStyles, /box-shadow: inset 3px 0 var\(--accent\)/);
+assert.match(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.caption-list/);
+assert.doesNotMatch(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.footer/);
 
 const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-worker.js"), "utf8");
 assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.googleapis\.com|private-config/);

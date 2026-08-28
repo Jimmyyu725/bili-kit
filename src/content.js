@@ -15,6 +15,9 @@
   let currentYouTubeVideoId = "";
   let currentBilibiliPageKey = "";
   let bilibiliPayloadId = 0;
+  let bilibiliRetryTimer = null;
+  let bilibiliRetryPageKey = "";
+  let bilibiliRetryDelay = 1500;
   let lastUrl = location.href;
   let boundVideo = null;
   let lastPlaybackSentAt = 0;
@@ -24,8 +27,13 @@
   let embeddedPanel = null;
   let observedPlayer = null;
   let playerResizeObserver = null;
+  let embeddedPanelCollapsed = false;
+  let paddedBilibiliContainer = null;
+  let originalBilibiliPaddingTop = "";
   let paddedYouTubeSidebar = null;
   let originalSidebarPaddingTop = "";
+  const COLLAPSED_PANEL_HEIGHT = 140;
+  const BILIBILI_MAX_RETRY_DELAY = 10_000;
 
   function sendRuntimeMessage(message) {
     if (!chrome.runtime?.id) return Promise.resolve();
@@ -61,10 +69,34 @@
     return { videoId, pageNumber, pageKey: `${videoId}:${pageNumber}` };
   }
 
+  function resetBilibiliRetry(pageKey = "") {
+    clearTimeout(bilibiliRetryTimer);
+    bilibiliRetryTimer = null;
+    bilibiliRetryPageKey = pageKey;
+    bilibiliRetryDelay = 1500;
+  }
+
+  function scheduleBilibiliRetry(pageKey) {
+    if (pageKey !== bilibiliRetryPageKey) resetBilibiliRetry(pageKey);
+    if (bilibiliRetryTimer) return;
+    bilibiliRetryTimer = setTimeout(() => {
+      bilibiliRetryTimer = null;
+      if (getBilibiliIdentity()?.pageKey !== pageKey) return;
+      bilibiliRetryDelay = Math.min(Math.round(bilibiliRetryDelay * 1.6), BILIBILI_MAX_RETRY_DELAY);
+      loadBilibili(true);
+    }, bilibiliRetryDelay);
+  }
+
   function loadBilibili(force = false) {
     const identity = getBilibiliIdentity();
-    if (!identity) return;
+    if (!identity) {
+      resetBilibiliRetry();
+      return;
+    }
     if (!force && identity.pageKey === currentBilibiliPageKey) return;
+    if (identity.pageKey !== bilibiliRetryPageKey) resetBilibiliRetry(identity.pageKey);
+    clearTimeout(bilibiliRetryTimer);
+    bilibiliRetryTimer = null;
     currentBilibiliPageKey = identity.pageKey;
 
     publishState({
@@ -97,9 +129,10 @@
         source: "bilibili",
         videoId: identity.videoId,
         status: "error",
-        message: `字幕读取失败：${String(payload.error || "未知错误")}`,
+        message: `字幕读取失败，正在自动重试：${String(payload.error || "未知错误")}`,
         tracks: []
       });
+      scheduleBilibiliRetry(identity.pageKey);
       return;
     }
 
@@ -123,6 +156,8 @@
 
     if (currentPayload !== bilibiliPayloadId || getBilibiliIdentity()?.pageKey !== identity.pageKey) return;
     const status = tracks.length ? "ready" : "empty";
+    if (tracks.length) resetBilibiliRetry(identity.pageKey);
+    else scheduleBilibiliRetry(identity.pageKey);
     await publishState({
       source: "bilibili",
       videoId: identity.videoId,
@@ -130,10 +165,10 @@
       message: tracks.length
         ? ""
         : rawTracks.length
-          ? "找到了字幕，但字幕文件下载失败。请点击刷新重试。"
+          ? "字幕文件暂未就绪，正在自动重试……"
           : payload.needLogin
-            ? "没有取得字幕。请确认 Bilibili 已登录，然后刷新页面。"
-            : "这个视频没有可用字幕。",
+            ? "暂未取得字幕。请确认 Bilibili 已登录，扩展会继续自动重试。"
+            : "暂未发现字幕，正在自动重试……",
       title: String(payload.title || document.title),
       chapters: parseBilibiliChapters(payload.viewPoints).slice(0, 100),
       tracks
@@ -306,6 +341,12 @@
     embeddedPanel = null;
     embedRoot?.remove();
     embedRoot = null;
+    embeddedPanelCollapsed = false;
+    if (paddedBilibiliContainer) {
+      paddedBilibiliContainer.style.paddingTop = originalBilibiliPaddingTop;
+      paddedBilibiliContainer = null;
+      originalBilibiliPaddingTop = "";
+    }
     if (paddedYouTubeSidebar) {
       paddedYouTubeSidebar.style.paddingTop = originalSidebarPaddingTop;
       paddedYouTubeSidebar = null;
@@ -321,7 +362,8 @@
     root.id = "caption-lite-embed";
     root.style.cssText = [
       "width:100%",
-      "min-height:360px",
+      "min-height:0",
+      "box-sizing:border-box",
       "position:absolute",
       "z-index:20",
       "pointer-events:auto",
@@ -365,7 +407,13 @@
     const shadowRoot = host.attachShadow({ mode: "open" });
     shadowRoot.append(style, app);
     if (!host.isConnected) return;
-    embeddedPanel = globalThis.CaptionLitePanel.mount(shadowRoot, { embedded: true });
+    embeddedPanel = globalThis.CaptionLitePanel.mount(shadowRoot, {
+      embedded: true,
+      onCollapsedChange(collapsed) {
+        embeddedPanelCollapsed = collapsed;
+        mountSitePanel();
+      }
+    });
     if (latestState) embeddedPanel?.setState(latestState);
     embeddedPanel?.setPlayback(latestPlaybackMs);
   }
@@ -394,7 +442,28 @@
 
     const updateHeight = () => {
       if (!embedRoot?.isConnected) return;
-      placeEmbedRoot(danmakuBox, Math.max(360, player.getBoundingClientRect().height));
+      const playlist = document.querySelector(".video-pod");
+      const playlistContainer = playlist?.getBoundingClientRect().height > 0
+        ? playlist.parentElement
+        : null;
+      const height = embeddedPanelCollapsed
+        ? COLLAPSED_PANEL_HEIGHT
+        : Math.max(360, player.getBoundingClientRect().height);
+
+      if (paddedBilibiliContainer !== playlistContainer) {
+        if (paddedBilibiliContainer) {
+          paddedBilibiliContainer.style.paddingTop = originalBilibiliPaddingTop;
+        }
+        paddedBilibiliContainer = playlistContainer;
+        originalBilibiliPaddingTop = playlistContainer?.style.paddingTop || "";
+      }
+
+      if (playlistContainer) {
+        playlistContainer.style.paddingTop = `${Math.round(height + 12)}px`;
+        placeEmbedRoot(playlistContainer, height);
+      } else {
+        placeEmbedRoot(danmakuBox, height);
+      }
     };
     updateHeight();
 
@@ -426,7 +495,9 @@
         });
     }
 
-    const height = Math.min(window.innerHeight * 0.72, 720);
+    const height = embeddedPanelCollapsed
+      ? COLLAPSED_PANEL_HEIGHT
+      : Math.min(window.innerHeight * 0.72, 720);
     if (paddedYouTubeSidebar !== sidebar) {
       if (paddedYouTubeSidebar) paddedYouTubeSidebar.style.paddingTop = originalSidebarPaddingTop;
       paddedYouTubeSidebar = sidebar;

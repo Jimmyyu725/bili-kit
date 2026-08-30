@@ -616,10 +616,14 @@
     }
 
     if (message?.type === "COPY_BILIBILI_COMMENTS") {
-      commentCopyController.start()
-        .then(() => sendResponse({ success: true }))
-        .catch((error) => sendResponse({ success: false, error: error.message }));
-      return true;
+      commentCopyController.start().catch((error) => {
+        publishCommentCopyState({
+          status: "error",
+          message: `评论读取失败：${error instanceof Error ? error.message : "未知错误"}`
+        }).catch(() => {});
+      });
+      sendResponse({ success: true });
+      return;
     }
   });
 

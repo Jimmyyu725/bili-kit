@@ -75,6 +75,14 @@ assert.match(contentSource, /requestComments: async \(pageKey, \{ signal \}\)/);
 assert.match(contentSource, /BILIBILI_NAVIGATION/);
 assert.doesNotMatch(contentSource, /FETCH_BILIBILI_COMMENTS/);
 assert.doesNotMatch(contentSource, /BILIBILI_COMMENTS_RESULT/);
+assert.match(
+  contentSource,
+  /COPY_BILIBILI_COMMENTS[\s\S]*commentCopyController\.start\(\)\.catch[\s\S]*sendResponse\(\{ success: true \}\)/
+);
+assert.doesNotMatch(
+  contentSource,
+  /commentCopyController\.start\(\)[\s\S]{0,120}\.then\([\s\S]{0,120}sendResponse/
+);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
 assert.match(panelSource, /setPlayback\(currentMs\)/);

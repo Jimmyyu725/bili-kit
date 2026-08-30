@@ -229,7 +229,7 @@ Clicking sends `{ type: "COPY_BILIBILI_COMMENTS", tabId: activeTabId }`. Expose 
 
 - [ ] **Step 4: Wire command, progress, clipboard, and retry**
 
-The service worker forwards `COPY_BILIBILI_COMMENTS` to the tab and rebroadcasts tab-originated `COMMENTS_COPY_STATE` with `tabId`.
+The service worker forwards `COPY_BILIBILI_COMMENTS` to the tab and rebroadcasts tab-originated `COMMENTS_COPY_STATE` with `tabId`. The content script acknowledges the start command synchronously, so neither runtime message event waits for the unbounded pagination task.
 
 In `content.js`, use a comment-copy controller that keeps pending clipboard text for the same page and retries it before starting a new fetch. Otherwise emit loading state and invoke the isolated `CaptionLiteBilibiliCommentLoader`. Keep progress and full results inside the isolated world; accept only the Chrome-owned `BILIBILI_NAVIGATION` runtime message as an external cancellation signal. On success:
 

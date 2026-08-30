@@ -72,6 +72,7 @@ assert.match(contentSource, /navigator\.clipboard\.writeText/);
 assert.match(contentSource, /CaptionLiteCommentCopy/);
 assert.match(contentSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/);
 assert.match(contentSource, /loadComments: \(pageKey, \{ signal, onSnapshot, onRetry \}\)/);
+assert.match(contentSource, /limitReached: Boolean\(state\?\.limitReached\)/);
 assert.match(contentSource, /commentCopyController\.startLoading\(\)/);
 assert.match(contentSource, /BILIBILI_NAVIGATION/);
 const bilibiliNavigationHandler = contentSource.slice(
@@ -113,6 +114,8 @@ assert.match(panelSource, /COPY_BILIBILI_COMMENTS/);
 assert.match(panelSource, /setCommentCopyState/);
 assert.match(panelSource, /`复制当前 \$\{commentCopyState\.count\} 条`/);
 assert.match(panelSource, /`复制全部 \$\{commentCopyState\.count\} 条`/);
+assert.match(panelSource, /`复制 \$\{commentCopyState\.count\} 条（上限）`/);
+assert.match(panelSource, /limitReached: Boolean\(state\.limitReached\)/);
 assert.match(panelSource, /"正在加载评论…"/);
 assert.match(panelSource, /activeTabId == null \|\| !commentCopyState\.canCopy/);
 assert.doesNotMatch(panelSource, /setCommentCopyState\(\{ status: "loading", count: 0/);

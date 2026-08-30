@@ -29,7 +29,8 @@
     message: "",
     canCopy: false,
     canRetry: false,
-    complete: false
+    complete: false,
+    limitReached: false
   };
   let embedRoot = null;
   let embeddedPanel = null;
@@ -70,7 +71,8 @@
       message: String(state?.message || ""),
       canCopy: Boolean(state?.canCopy),
       canRetry: Boolean(state?.canRetry),
-      complete: Boolean(state?.complete)
+      complete: Boolean(state?.complete),
+      limitReached: Boolean(state?.limitReached)
     };
     embeddedPanel?.setCommentCopyState(latestCommentCopyState);
     return sendRuntimeMessage({

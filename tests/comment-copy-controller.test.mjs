@@ -236,15 +236,72 @@ function deferred() {
   await Promise.resolve();
   callbacks.onSnapshot({ pageKey, count: 1, text: "first", complete: false, phase: "roots" });
   const copying = controller.copyCurrent();
-  callbacks.onSnapshot({ pageKey, count: 2, text: "second", complete: false, phase: "roots" });
+  callbacks.onSnapshot({
+    pageKey,
+    count: 500,
+    text: "limited",
+    complete: true,
+    limitReached: true,
+    phase: "limit"
+  });
   copyRequest.resolve(true);
   assert.equal(await copying, true);
   assert.deepEqual(copied, ["first"]);
-  assert.equal(states.at(-1).count, 2);
-  assert.match(states.at(-1).message, /已复制 1 条/);
+  assert.equal(states.at(-1).count, 500);
+  assert.equal(states.at(-1).limitReached, true);
+  assert.match(states.at(-1).message, /已复制 1 条；现已达到 500 条上限，可再次复制。/);
 
-  loadingRequest.resolve({ pageKey, count: 2, text: "second", complete: true, phase: "complete" });
+  loadingRequest.resolve({
+    pageKey,
+    count: 500,
+    text: "limited",
+    complete: true,
+    limitReached: true,
+    phase: "limit"
+  });
   await loading;
+}
+
+{
+  const pageKey = "limit:1";
+  const request = deferred();
+  const states = [];
+  let callbacks;
+  const controller = createController({
+    getPageKey: () => pageKey,
+    loadComments: (_pageKey, options) => {
+      callbacks = options;
+      return request.promise;
+    },
+    copyText: async () => true,
+    publishState: (state) => states.push(state)
+  });
+
+  const loading = controller.startLoading();
+  await Promise.resolve();
+  const limitSnapshot = {
+    pageKey,
+    count: 500,
+    text: "limited",
+    complete: true,
+    limitReached: true,
+    phase: "limit"
+  };
+  callbacks.onSnapshot(limitSnapshot);
+  request.resolve(limitSnapshot);
+  assert.equal(await loading, true);
+  assert.deepEqual(states.at(-1), {
+    status: "complete",
+    count: 500,
+    message: "已达到 500 条上限，停止加载。",
+    canCopy: true,
+    canRetry: false,
+    complete: true,
+    limitReached: true
+  });
+
+  assert.equal(await controller.copyCurrent(), true);
+  assert.equal(states.at(-1).message, "已复制 500 条评论（已达上限）。");
 }
 
 console.log("Comment copy controller checks passed.");

@@ -15,7 +15,8 @@
         message: String(state?.message || ""),
         canCopy: Boolean(state?.canCopy),
         canRetry: Boolean(state?.canRetry),
-        complete: Boolean(state?.complete)
+        complete: Boolean(state?.complete),
+        limitReached: Boolean(state?.limitReached)
       });
     }
 
@@ -37,6 +38,7 @@
         count: Math.max(0, Number(value?.count) || 0),
         text: String(value?.text || ""),
         complete: Boolean(value?.complete),
+        limitReached: Boolean(value?.limitReached),
         phase: String(value?.phase || "roots")
       };
     }
@@ -52,8 +54,11 @@
         count: snapshot.count,
         canCopy: snapshot.count > 0,
         complete: snapshot.complete,
-        message: snapshot.complete
-          ? "全部评论已加载。"
+        limitReached: snapshot.limitReached,
+        message: snapshot.limitReached
+          ? "已达到 500 条上限，停止加载。"
+          : snapshot.complete
+            ? "全部评论已加载。"
           : `正在加载评论：${snapshot.count} 条`
       });
       return true;
@@ -165,10 +170,15 @@
         status,
         count: currentSnapshot.count,
         complete: currentSnapshot.complete,
+        limitReached: currentSnapshot.limitReached,
         canCopy: true,
         canRetry: !copied,
         message: copied
-          ? currentSnapshot.complete && copiedSnapshot.count === currentSnapshot.count
+          ? currentSnapshot.limitReached && copiedSnapshot.count === currentSnapshot.count
+            ? `已复制 ${copiedSnapshot.count} 条评论（已达上限）。`
+            : currentSnapshot.limitReached
+              ? `已复制 ${copiedSnapshot.count} 条；现已达到 500 条上限，可再次复制。`
+              : currentSnapshot.complete && copiedSnapshot.count === currentSnapshot.count
             ? `已复制全部 ${copiedSnapshot.count} 条评论。`
             : currentSnapshot.complete
               ? `已复制 ${copiedSnapshot.count} 条；全部 ${currentSnapshot.count} 条已加载，可再次复制全部。`

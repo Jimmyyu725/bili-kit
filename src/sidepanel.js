@@ -48,7 +48,8 @@
     message: "",
     canCopy: false,
     canRetry: false,
-    complete: false
+    complete: false,
+    limitReached: false
   };
 
   function sendMessage(message) {
@@ -65,23 +66,30 @@
     elements.copyCommentsButton.hidden = !visible;
     if (!visible) return;
     elements.copyCommentsButton.disabled = activeTabId == null || !commentCopyState.canCopy;
-    elements.copyCommentsButton.textContent = commentCopyState.complete
-      ? `复制全部 ${commentCopyState.count} 条`
+    elements.copyCommentsButton.textContent = commentCopyState.limitReached
+      ? `复制 ${commentCopyState.count} 条（上限）`
+      : commentCopyState.complete
+        ? `复制全部 ${commentCopyState.count} 条`
       : commentCopyState.count > 0
         ? `复制当前 ${commentCopyState.count} 条`
         : "正在加载评论…";
     if (commentCopyState.message) elements.status.textContent = commentCopyState.message;
   }
 
-  function setCommentCopyState(state = {}) {
-    commentCopyState = {
+  function normalizeCommentCopyState(state = {}) {
+    return {
       status: state.status || "idle",
       count: Math.max(0, Number(state.count) || 0),
       message: String(state.message || ""),
       canCopy: Boolean(state.canCopy),
       canRetry: Boolean(state.canRetry),
-      complete: Boolean(state.complete)
+      complete: Boolean(state.complete),
+      limitReached: Boolean(state.limitReached)
     };
+  }
+
+  function setCommentCopyState(state = {}) {
+    commentCopyState = normalizeCommentCopyState(state);
     renderCommentCopyButton();
   }
 
@@ -256,8 +264,7 @@
   async function loadActiveState() {
     const response = await sendMessage({ type: "GET_ACTIVE_STATE" });
     activeTabId = response?.tabId ?? null;
-    commentCopyState = response?.commentCopyState
-      || { status: "idle", count: 0, message: "", canCopy: false, canRetry: false, complete: false };
+    commentCopyState = normalizeCommentCopyState(response?.commentCopyState);
     if (!embedded || response?.state) {
       currentState = response?.state ?? null;
       renderState();
@@ -348,8 +355,7 @@
       activeTabId = message.tabId;
       currentState = message.state;
       currentTrackId = "";
-      commentCopyState = message.commentCopyState
-        || { status: "idle", count: 0, message: "", canCopy: false, canRetry: false, complete: false };
+      commentCopyState = normalizeCommentCopyState(message.commentCopyState);
       renderState();
     }
     if (message?.type === "COMMENTS_COPY_STATE" && message.tabId === activeTabId) {

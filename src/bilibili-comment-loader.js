@@ -254,8 +254,6 @@
         }
         const snapshot = createSnapshot(pageKey, threads, { phase: "roots" });
         onProgress(snapshot.count);
-        onSnapshot(snapshot);
-        if (snapshot.count > countBeforePage) retryAttempt = 0;
 
         if (snapshot.count === MAX_COMMENT_COUNT) {
           const limitSnapshot = createSnapshot(pageKey, threads, {
@@ -266,6 +264,9 @@
           onSnapshot(limitSnapshot);
           return limitSnapshot;
         }
+
+        onSnapshot(snapshot);
+        if (snapshot.count > countBeforePage) retryAttempt = 0;
 
         if (data.cursor?.is_end) break;
         const nextOffset = String(data.cursor?.pagination_reply?.next_offset ?? "");
@@ -292,7 +293,7 @@
           onBatch() {
             const snapshot = createSnapshot(pageKey, threads, { phase: "replies" });
             onProgress(snapshot.count);
-            onSnapshot(snapshot);
+            if (snapshot.count < MAX_COMMENT_COUNT) onSnapshot(snapshot);
           },
           onRetry,
           pageKey,

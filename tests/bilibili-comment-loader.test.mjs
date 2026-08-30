@@ -481,6 +481,12 @@ function createLoader() {
   assert.equal(result.complete, true);
   assert.equal(result.limitReached, true);
   assert.equal(result.phase, "limit");
+  assert.deepEqual(snapshots.map(({ count, complete, limitReached, phase }) => ({
+    count, complete, limitReached, phase
+  })), [
+    { count: 500, complete: true, limitReached: true, phase: "limit" }
+  ]);
+  assert.equal(snapshots.filter((snapshot) => snapshot.complete && snapshot.limitReached).length, 1);
   assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
 }
 
@@ -543,6 +549,13 @@ function createLoader() {
   assert.equal(result.complete, true);
   assert.equal(result.limitReached, true);
   assert.equal(result.phase, "limit");
+  assert.deepEqual(snapshots.map(({ count, complete, limitReached, phase }) => ({
+    count, complete, limitReached, phase
+  })), [
+    { count: 490, complete: false, limitReached: false, phase: "roots" },
+    { count: 500, complete: true, limitReached: true, phase: "limit" }
+  ]);
+  assert.equal(snapshots.filter((snapshot) => snapshot.complete && snapshot.limitReached).length, 1);
   assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
 }
 
@@ -615,6 +628,13 @@ function createLoader() {
   assert.equal(result.complete, true);
   assert.equal(result.limitReached, true);
   assert.equal(result.phase, "limit");
+  assert.deepEqual(snapshots.map(({ count, complete, limitReached, phase }) => ({
+    count, complete, limitReached, phase
+  })), [
+    { count: 495, complete: false, limitReached: false, phase: "roots" },
+    { count: 500, complete: true, limitReached: true, phase: "limit" }
+  ]);
+  assert.equal(snapshots.filter((snapshot) => snapshot.complete && snapshot.limitReached).length, 1);
   assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
 }
 

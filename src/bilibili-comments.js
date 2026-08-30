@@ -134,13 +134,13 @@
 
   function appendChildReplies(thread, replies, maxReplies = Infinity) {
     const seen = new Set(thread.replies.map((reply) => reply.id));
-    (replies || []).forEach((rawReply) => {
-      if (thread.replies.length >= maxReplies) return;
+    for (const rawReply of replies || []) {
+      if (thread.replies.length >= maxReplies) break;
       const reply = normalizeReply(rawReply);
-      if (!reply.id || seen.has(reply.id)) return;
+      if (!reply.id || seen.has(reply.id)) continue;
       seen.add(reply.id);
       thread.replies.push(reply);
-    });
+    }
     return thread;
   }
 

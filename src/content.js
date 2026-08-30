@@ -109,10 +109,22 @@
 
   const commentCopyController = globalThis.CaptionLiteCommentCopy.createController({
     getPageKey: () => getBilibiliIdentity()?.pageKey || "",
-    requestComments: (pageKey) => sendRuntimeMessage({
-      type: "FETCH_BILIBILI_COMMENTS",
-      pageKey
-    }),
+    requestComments: async (pageKey, { signal }) => {
+      const identity = getBilibiliIdentity();
+      if (!identity || identity.pageKey !== pageKey) {
+        return { success: false, error: "当前 Bilibili 视频已变化" };
+      }
+      const result = await globalThis.CaptionLiteBilibiliCommentLoader.loadAllComments({
+        pageKey,
+        videoId: identity.videoId,
+        signal,
+        isCurrent: () => !signal.aborted && getBilibiliIdentity()?.pageKey === pageKey,
+        onProgress: (count) => commentCopyController.updateProgress({ pageKey, count })
+      });
+      return result?.error
+        ? { success: false, error: result.error }
+        : { success: true, ...result };
+    },
     copyText: copyCommentText,
     publishState: publishCommentCopyState
   });
@@ -579,8 +591,9 @@
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "BILIBILI_COMMENTS_PROGRESS") {
-      sendResponse({ success: commentCopyController.updateProgress(message.payload) });
+    if (message?.type === "BILIBILI_NAVIGATION") {
+      commentCopyController.invalidate();
+      sendResponse({ success: true });
       return;
     }
 

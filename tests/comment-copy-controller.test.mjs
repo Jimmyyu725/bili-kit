@@ -24,8 +24,9 @@ function deferred() {
   const copied = [];
   const controller = createController({
     getPageKey: () => pageKey,
-    requestComments: (requestedPageKey) => {
+    requestComments: (requestedPageKey, { signal }) => {
       requestedPageKeys.push(requestedPageKey);
+      assert.equal(signal.aborted, false);
       return request.promise;
     },
     copyText: async (text) => { copied.push(text); return true; },
@@ -53,16 +54,22 @@ function deferred() {
   let pageKey = "A:1";
   const request = deferred();
   const copied = [];
+  let requestSignal;
   const controller = createController({
     getPageKey: () => pageKey,
-    requestComments: () => request.promise,
+    requestComments: (_pageKey, { signal }) => {
+      requestSignal = signal;
+      return request.promise;
+    },
     copyText: async (text) => { copied.push(text); return true; },
     publishState: () => {}
   });
 
   const oldJob = controller.start();
+  await Promise.resolve();
   pageKey = "B:1";
   controller.invalidate();
+  assert.equal(requestSignal.aborted, true);
   pageKey = "A:1";
   request.resolve({ success: true, pageKey: "A:1", count: 1, text: "stale" });
   assert.equal(await oldJob, false);

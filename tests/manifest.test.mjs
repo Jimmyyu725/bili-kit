@@ -39,6 +39,8 @@ const isolatedContent = manifest.content_scripts.find((script) =>
 );
 assert.deepEqual(isolatedContent?.js, [
   "src/parsers.js",
+  "src/bilibili-comments.js",
+  "src/bilibili-comment-loader.js",
   "src/comment-copy-controller.js",
   "src/sidepanel.js",
   "src/content.js"
@@ -68,8 +70,10 @@ assert.match(contentSource, /loadBilibili\(true\)/);
 assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.pageKey\)/);
 assert.match(contentSource, /navigator\.clipboard\.writeText/);
 assert.match(contentSource, /CaptionLiteCommentCopy/);
-assert.match(contentSource, /FETCH_BILIBILI_COMMENTS/);
-assert.match(contentSource, /requestComments: \(pageKey\)/);
+assert.match(contentSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/);
+assert.match(contentSource, /requestComments: async \(pageKey, \{ signal \}\)/);
+assert.match(contentSource, /BILIBILI_NAVIGATION/);
+assert.doesNotMatch(contentSource, /FETCH_BILIBILI_COMMENTS/);
 assert.doesNotMatch(contentSource, /BILIBILI_COMMENTS_RESULT/);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
@@ -110,11 +114,12 @@ const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-wor
 assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.googleapis\.com|private-config/);
 assert.match(serviceWorkerSource, /COPY_BILIBILI_COMMENTS/);
 assert.match(serviceWorkerSource, /COMMENTS_COPY_STATE/);
-assert.match(serviceWorkerSource, /FETCH_BILIBILI_COMMENTS/);
-assert.match(serviceWorkerSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/);
-assert.match(serviceWorkerSource, /CaptionLiteCommentJobs\.createRegistry/);
 assert.match(serviceWorkerSource, /chrome\.webNavigation\.onHistoryStateUpdated/);
 assert.match(serviceWorkerSource, /chrome\.webNavigation\.onCommitted/);
+assert.match(serviceWorkerSource, /BILIBILI_NAVIGATION/);
+assert.doesNotMatch(serviceWorkerSource, /FETCH_BILIBILI_COMMENTS/);
+assert.doesNotMatch(serviceWorkerSource, /CaptionLiteBilibiliCommentLoader/);
+assert.doesNotMatch(serviceWorkerSource, /CaptionLiteCommentJobs/);
 assert.doesNotMatch(serviceWorkerSource, /chrome\.scripting\.executeScript/);
 
 const bilibiliSource = await readFile(resolve(projectRoot, "src/bilibili-main.js"), "utf8");

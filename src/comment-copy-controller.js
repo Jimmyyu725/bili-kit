@@ -6,6 +6,11 @@
     let activeJob = null;
     let pendingCopy = null;
 
+    function cancelActiveJob() {
+      activeJob?.abortController.abort();
+      activeJob = null;
+    }
+
     function emit(state) {
       return publishState({
         status: state?.status || "idle",
@@ -45,13 +50,16 @@
       if (pendingCopy?.pageKey === pageKey) return copyPending();
       pendingCopy = null;
 
-      const job = { generation: ++generation, pageKey };
+      cancelActiveJob();
+      const abortController = new AbortController();
+      const job = { abortController, generation: ++generation, pageKey };
       activeJob = job;
       await emit({ status: "loading", count: 0, message: "正在读取评论……" });
+      if (activeJob?.generation !== job.generation || abortController.signal.aborted) return false;
 
       let response;
       try {
-        response = await requestComments(pageKey);
+        response = await requestComments(pageKey, { signal: abortController.signal });
       } catch (error) {
         response = {
           success: false,
@@ -101,7 +109,7 @@
 
     function invalidate() {
       generation += 1;
-      activeJob = null;
+      cancelActiveJob();
       pendingCopy = null;
       emit({ status: "idle" });
     }

@@ -76,6 +76,8 @@
       ],
       "js": [
         "src/parsers.js",
+        "src/bilibili-comments.js",
+        "src/bilibili-comment-loader.js",
         "src/comment-copy-controller.js",
         "src/sidepanel.js",
         "src/content.js"

@@ -304,4 +304,97 @@ function deferred() {
   assert.equal(states.at(-1).message, "已复制 500 条评论（已达上限）。");
 }
 
+{
+  const pageKey = "copy-token:1";
+  const loadingRequest = deferred();
+  const copyRequests = [deferred(), deferred()];
+  const states = [];
+  let callbacks;
+  let nextCopyRequest = 0;
+  const controller = createController({
+    getPageKey: () => pageKey,
+    loadComments: (_pageKey, options) => {
+      callbacks = options;
+      return loadingRequest.promise;
+    },
+    copyText: () => copyRequests[nextCopyRequest++].promise,
+    publishState: (state) => states.push(state)
+  });
+
+  controller.startLoading();
+  await Promise.resolve();
+  callbacks.onSnapshot({ pageKey, count: 1, text: "first", complete: true, phase: "complete" });
+  const firstCopy = controller.copyCurrent();
+  const secondCopy = controller.copyCurrent();
+
+  copyRequests[1].resolve(true);
+  assert.equal(await secondCopy, true);
+  const emissionsAfterLatestCopy = states.length;
+  copyRequests[0].resolve(true);
+  assert.equal(await firstCopy, true);
+  assert.equal(states.length, emissionsAfterLatestCopy);
+}
+
+{
+  let pageKey = "A:1";
+  const requests = [];
+  const copyRequest = deferred();
+  const states = [];
+  const controller = createController({
+    getPageKey: () => pageKey,
+    loadComments: (_pageKey, options) => {
+      const request = deferred();
+      requests.push({ options, request });
+      return request.promise;
+    },
+    copyText: () => copyRequest.promise,
+    publishState: (state) => states.push(state)
+  });
+
+  controller.startLoading();
+  await Promise.resolve();
+  requests[0].options.onSnapshot({ pageKey, count: 1, text: "old", complete: true, phase: "complete" });
+  const oldCopy = controller.copyCurrent();
+  pageKey = "B:1";
+  controller.invalidate();
+  pageKey = "A:1";
+  controller.startLoading();
+  await Promise.resolve();
+  requests[1].options.onSnapshot({ pageKey, count: 2, text: "fresh", complete: true, phase: "complete" });
+
+  const emissionsAfterRestart = states.length;
+  copyRequest.resolve(true);
+  assert.equal(await oldCopy, true);
+  assert.equal(states.length, emissionsAfterRestart);
+}
+
+{
+  const pageKey = "copy-error:1";
+  const loadingRequest = deferred();
+  const copyRequest = deferred();
+  const states = [];
+  let callbacks;
+  const controller = createController({
+    getPageKey: () => pageKey,
+    loadComments: (_pageKey, options) => {
+      callbacks = options;
+      return loadingRequest.promise;
+    },
+    copyText: () => copyRequest.promise,
+    publishState: (state) => states.push(state)
+  });
+
+  const loading = controller.startLoading();
+  await Promise.resolve();
+  callbacks.onSnapshot({ pageKey, count: 2, text: "partial", complete: false, phase: "roots" });
+  const copying = controller.copyCurrent();
+  loadingRequest.resolve({ pageKey, error: "网络错误" });
+  assert.equal(await loading, false);
+  copyRequest.resolve(true);
+  assert.equal(await copying, true);
+  assert.equal(states.at(-1).status, "error");
+  assert.match(states.at(-1).message, /已复制 2 条；评论加载失败/);
+  assert.doesNotMatch(states.at(-1).message, /仍在继续加载/);
+}
+
 console.log("Comment copy controller checks passed.");

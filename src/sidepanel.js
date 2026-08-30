@@ -66,14 +66,15 @@
     elements.copyCommentsButton.hidden = !visible;
     if (!visible) return;
     elements.copyCommentsButton.disabled = activeTabId == null || !commentCopyState.canCopy;
-    elements.copyCommentsButton.textContent = commentCopyState.limitReached
-      ? `复制 ${commentCopyState.count} 条（上限）`
-      : commentCopyState.complete
-        ? `复制全部 ${commentCopyState.count} 条`
-      : commentCopyState.count > 0
-        ? `复制当前 ${commentCopyState.count} 条`
-        : "正在加载评论…";
+    elements.copyCommentsButton.textContent = getCommentCopyButtonLabel();
     if (commentCopyState.message) elements.status.textContent = commentCopyState.message;
+  }
+
+  function getCommentCopyButtonLabel() {
+    if (commentCopyState.limitReached) return `复制 ${commentCopyState.count} 条（上限）`;
+    if (commentCopyState.complete) return `复制全部 ${commentCopyState.count} 条`;
+    if (commentCopyState.count > 0) return `复制当前 ${commentCopyState.count} 条`;
+    return "正在加载评论…";
   }
 
   function normalizeCommentCopyState(state = {}) {
@@ -335,6 +336,7 @@
     });
     if (!response?.success) {
       setCommentCopyState({
+        ...commentCopyState,
         status: "error",
         message: response?.error || "无法开始读取评论。"
       });

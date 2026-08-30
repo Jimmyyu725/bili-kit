@@ -122,6 +122,19 @@ assert.match(
 );
 assert.match(panelSource, /"正在加载评论…"/);
 assert.match(panelSource, /activeTabId == null \|\| !commentCopyState\.canCopy/);
+const commentCopyButtonLabel = panelSource.slice(
+  panelSource.indexOf("function getCommentCopyButtonLabel"),
+  panelSource.indexOf("function normalizeCommentCopyState")
+);
+assert.ok(
+  commentCopyButtonLabel.indexOf("commentCopyState.limitReached")
+    < commentCopyButtonLabel.indexOf("commentCopyState.complete"),
+  "limitReached must take precedence over complete when rendering the copy button"
+);
+assert.match(
+  panelSource,
+  /if \(!response\?\.success\) \{\s*setCommentCopyState\(\{\s*\.\.\.commentCopyState,\s*status: "error",\s*message: response\?\.error \|\| "无法开始读取评论。"/
+);
 assert.doesNotMatch(panelSource, /setCommentCopyState\(\{ status: "loading", count: 0/);
 assert.doesNotMatch(panelSource, /TRANSLATE_CAPTIONS|Google 翻译/);
 

@@ -6,6 +6,7 @@
     let activeJob = null;
     let latestSnapshot = null;
     let latestStatus = "idle";
+    let copyToken = 0;
 
     function emit(state) {
       latestStatus = state?.status || "idle";
@@ -136,6 +137,21 @@
       return job.promise;
     }
 
+    function getCopySuccessMessage(copiedSnapshot, currentSnapshot, status) {
+      if (currentSnapshot.limitReached) {
+        return copiedSnapshot.count === currentSnapshot.count
+          ? `已复制 ${copiedSnapshot.count} 条评论（已达上限）。`
+          : `已复制 ${copiedSnapshot.count} 条；现已达到 500 条上限，可再次复制。`;
+      }
+      if (currentSnapshot.complete) {
+        return copiedSnapshot.count === currentSnapshot.count
+          ? `已复制全部 ${copiedSnapshot.count} 条评论。`
+          : `已复制 ${copiedSnapshot.count} 条；全部 ${currentSnapshot.count} 条已加载，可再次复制全部。`;
+      }
+      if (status === "error") return `已复制 ${copiedSnapshot.count} 条；评论加载失败，请稍后重试。`;
+      return `已复制 ${copiedSnapshot.count} 条，仍在继续加载……`;
+    }
+
     async function copyCurrent() {
       const pageKey = String(getPageKey() || "");
       if (!latestSnapshot?.count || latestSnapshot.pageKey !== pageKey) {
@@ -149,6 +165,8 @@
       }
 
       const copiedSnapshot = latestSnapshot;
+      const copyGeneration = generation;
+      const currentCopyToken = ++copyToken;
 
       let copied = false;
       try {
@@ -157,7 +175,12 @@
         copied = false;
       }
 
-      if (String(getPageKey() || "") !== pageKey || latestSnapshot?.pageKey !== pageKey) {
+      if (
+        generation !== copyGeneration
+        || currentCopyToken !== copyToken
+        || String(getPageKey() || "") !== pageKey
+        || latestSnapshot?.pageKey !== pageKey
+      ) {
         return copied;
       }
 
@@ -174,15 +197,7 @@
         canCopy: true,
         canRetry: !copied,
         message: copied
-          ? currentSnapshot.limitReached && copiedSnapshot.count === currentSnapshot.count
-            ? `已复制 ${copiedSnapshot.count} 条评论（已达上限）。`
-            : currentSnapshot.limitReached
-              ? `已复制 ${copiedSnapshot.count} 条；现已达到 500 条上限，可再次复制。`
-              : currentSnapshot.complete && copiedSnapshot.count === currentSnapshot.count
-            ? `已复制全部 ${copiedSnapshot.count} 条评论。`
-            : currentSnapshot.complete
-              ? `已复制 ${copiedSnapshot.count} 条；全部 ${currentSnapshot.count} 条已加载，可再次复制全部。`
-              : `已复制 ${copiedSnapshot.count} 条，仍在继续加载……`
+          ? getCopySuccessMessage(copiedSnapshot, currentSnapshot, status)
           : "复制失败，请再次点击复制。"
       });
       return copied;

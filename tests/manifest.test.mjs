@@ -8,7 +8,7 @@ const manifest = JSON.parse(await readFile(resolve(projectRoot, "manifest.json")
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.minimum_chrome_version, "114");
-assert.deepEqual(manifest.permissions.sort(), ["sidePanel", "storage"]);
+assert.deepEqual(manifest.permissions.sort(), ["clipboardWrite", "sidePanel", "storage"]);
 assert.ok(!manifest.host_permissions.includes("<all_urls>"));
 assert.ok(!manifest.host_permissions.includes("https://translation.googleapis.com/*"));
 assert.deepEqual(Object.keys(manifest.icons), ["16", "32", "48", "128"]);
@@ -55,12 +55,16 @@ assert.doesNotMatch(contentSource, /danmakuBox\.before\(|sidebar\.prepend\(/);
 assert.match(contentSource, /document\.querySelector\("\.video-pod"\)/);
 assert.match(contentSource, /playlistContainer\.style\.paddingTop/);
 assert.match(contentSource, /embeddedPanelCollapsed\s*\? COLLAPSED_PANEL_HEIGHT/);
-assert.match(contentSource, /COLLAPSED_PANEL_HEIGHT = 140/);
+assert.match(contentSource, /COLLAPSED_PANEL_HEIGHT = 174/);
 assert.match(contentSource, /function scheduleBilibiliRetry\(pageKey\)/);
 assert.match(contentSource, /bilibiliRetryDelay \* 1\.6/);
 assert.match(contentSource, /BILIBILI_MAX_RETRY_DELAY = 10_000/);
 assert.match(contentSource, /loadBilibili\(true\)/);
 assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.pageKey\)/);
+assert.match(contentSource, /BILIBILI_COMMENTS_PROGRESS/);
+assert.match(contentSource, /BILIBILI_COMMENTS_RESULT/);
+assert.match(contentSource, /navigator\.clipboard\.writeText/);
+assert.match(contentSource, /pendingCommentCopy/);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
 assert.match(panelSource, /setPlayback\(currentMs\)/);
@@ -76,6 +80,8 @@ assert.match(panelSource, /highlightCurrentCaption\(true\);\s*\}, 3000\)/);
 assert.match(panelSource, /onCollapsedChange\?\.\(collapsed\)/);
 assert.match(panelSource, /aria-expanded/);
 assert.match(panelSource, /\[\$\{formatClock\(caption\.startMs\)\}\] \$\{caption\.text\}/);
+assert.match(panelSource, /COPY_BILIBILI_COMMENTS/);
+assert.match(panelSource, /setCommentCopyState/);
 assert.doesNotMatch(panelSource, /TRANSLATE_CAPTIONS|Google 翻译/);
 
 const panelMarkup = await readFile(resolve(projectRoot, "src/sidepanel.html"), "utf8");
@@ -84,16 +90,20 @@ assert.doesNotMatch(panelMarkup, /auto-scroll|自动跟随/);
 assert.match(panelMarkup, /<h1>字幕列表<\/h1>/);
 assert.match(panelMarkup, /复制（含时间）/);
 assert.match(panelMarkup, /id="collapse-button"/);
+assert.match(panelMarkup, /id="copy-comments-button"/);
 
 const panelStyles = await readFile(resolve(projectRoot, "src/sidepanel.css"), "utf8");
 assert.match(panelStyles, /\.caption-row \.text \{ font-size: 17px; \}/);
 assert.match(panelStyles, /font-family: ui-monospace/);
 assert.match(panelStyles, /box-shadow: inset 3px 0 var\(--accent\)/);
 assert.match(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.caption-list/);
+assert.match(panelStyles, /\.copy-comments-button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
 assert.doesNotMatch(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.footer/);
 
 const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-worker.js"), "utf8");
 assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.googleapis\.com|private-config/);
+assert.match(serviceWorkerSource, /COPY_BILIBILI_COMMENTS/);
+assert.match(serviceWorkerSource, /COMMENTS_COPY_STATE/);
 
 const bilibiliSource = await readFile(resolve(projectRoot, "src/bilibili-main.js"), "utf8");
 assert.match(bilibiliSource, /LOAD_BILIBILI"\) load\(true\)/);

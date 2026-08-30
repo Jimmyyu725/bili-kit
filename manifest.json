@@ -6,7 +6,8 @@
   "minimum_chrome_version": "114",
   "permissions": [
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "clipboardWrite"
   ],
   "host_permissions": [
     "https://*.youtube.com/*",

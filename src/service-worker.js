@@ -3,6 +3,7 @@
 importScripts("parsers.js");
 
 const STATE_PREFIX = "caption-state:";
+const COMMENT_STATE_PREFIX = "comment-copy-state:";
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
@@ -10,9 +11,18 @@ function stateKey(tabId) {
   return `${STATE_PREFIX}${tabId}`;
 }
 
+function commentStateKey(tabId) {
+  return `${COMMENT_STATE_PREFIX}${tabId}`;
+}
+
 async function getState(tabId) {
   const result = await chrome.storage.session.get(stateKey(tabId));
   return result[stateKey(tabId)] || null;
+}
+
+async function getCommentCopyState(tabId) {
+  const result = await chrome.storage.session.get(commentStateKey(tabId));
+  return result[commentStateKey(tabId)] || null;
 }
 
 async function broadcast(message) {
@@ -48,12 +58,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  if (message?.type === "COMMENTS_COPY_STATE" && sender.tab?.id != null) {
+    const tabId = sender.tab.id;
+    chrome.storage.session.set({ [commentStateKey(tabId)]: message.state })
+      .then(() => broadcast({ type: "COMMENTS_COPY_STATE", tabId, state: message.state }))
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "GET_ACTIVE_STATE") {
     (async () => {
       const tab = sender.tab || await getActiveTab();
       sendResponse({
         tabId: tab?.id ?? null,
-        state: tab?.id != null ? await getState(tab.id) : null
+        state: tab?.id != null ? await getState(tab.id) : null,
+        commentCopyState: tab?.id != null ? await getCommentCopyState(tab.id) : null
       });
     })().catch((error) => sendResponse({ error: error.message }));
     return true;
@@ -74,7 +94,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if ((message?.type === "SEEK" || message?.type === "REFRESH_CAPTIONS")
+  if ((message?.type === "SEEK"
+      || message?.type === "REFRESH_CAPTIONS"
+      || message?.type === "COPY_BILIBILI_COMMENTS")
       && Number.isInteger(message.tabId)) {
     chrome.tabs.sendMessage(message.tabId, message)
       .then((response) => sendResponse(response || { success: true }))
@@ -87,19 +109,20 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
   await broadcast({
     type: "ACTIVE_TAB_STATE",
     tabId,
-    state: await getState(tabId)
+    state: await getState(tabId),
+    commentCopyState: await getCommentCopyState(tabId)
   });
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (!changeInfo.url) return;
-  await chrome.storage.session.remove(stateKey(tabId));
+  await chrome.storage.session.remove([stateKey(tabId), commentStateKey(tabId)]);
   const activeTab = await getActiveTab();
   if (activeTab?.id === tabId) {
-    await broadcast({ type: "ACTIVE_TAB_STATE", tabId, state: null });
+    await broadcast({ type: "ACTIVE_TAB_STATE", tabId, state: null, commentCopyState: null });
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  chrome.storage.session.remove(stateKey(tabId)).catch(() => {});
+  chrome.storage.session.remove([stateKey(tabId), commentStateKey(tabId)]).catch(() => {});
 });

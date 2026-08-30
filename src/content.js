@@ -23,6 +23,8 @@
   let lastPlaybackSentAt = 0;
   let latestState = null;
   let latestPlaybackMs = 0;
+  let latestCommentCopyState = { status: "idle", count: 0, message: "", canRetry: false };
+  let pendingCommentCopy = null;
   let embedRoot = null;
   let embeddedPanel = null;
   let observedPlayer = null;
@@ -32,7 +34,7 @@
   let originalBilibiliPaddingTop = "";
   let paddedYouTubeSidebar = null;
   let originalSidebarPaddingTop = "";
-  const COLLAPSED_PANEL_HEIGHT = 140;
+  const COLLAPSED_PANEL_HEIGHT = 174;
   const BILIBILI_MAX_RETRY_DELAY = 10_000;
 
   function sendRuntimeMessage(message) {
@@ -52,6 +54,92 @@
       type: "CAPTIONS_UPDATED",
       state: latestState
     });
+  }
+
+  function publishCommentCopyState(state) {
+    latestCommentCopyState = {
+      status: state?.status || "idle",
+      count: Math.max(0, Number(state?.count) || 0),
+      message: String(state?.message || ""),
+      canRetry: Boolean(state?.canRetry)
+    };
+    embeddedPanel?.setCommentCopyState(latestCommentCopyState);
+    return sendRuntimeMessage({
+      type: "COMMENTS_COPY_STATE",
+      state: latestCommentCopyState
+    });
+  }
+
+  async function copyCommentText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall through to the content-script copy method.
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.cssText = "position:fixed;left:-9999px;top:0";
+    document.body.append(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+    return copied;
+  }
+
+  async function copyPendingComments() {
+    if (!pendingCommentCopy) return false;
+    const copied = await copyCommentText(pendingCommentCopy.text);
+    const count = pendingCommentCopy.count;
+    if (copied) pendingCommentCopy = null;
+    await publishCommentCopyState(copied
+      ? { status: "success", count, message: `已复制 ${count} 条评论。` }
+      : { status: "error", count, canRetry: true, message: "复制失败，请再次点击复制。" });
+    return copied;
+  }
+
+  async function startBilibiliCommentCopy() {
+    const identity = getBilibiliIdentity();
+    if (!identity) {
+      await publishCommentCopyState({ status: "error", message: "请先打开 Bilibili 视频。" });
+      return;
+    }
+    if (pendingCommentCopy?.pageKey === identity.pageKey) {
+      await copyPendingComments();
+      return;
+    }
+    pendingCommentCopy = null;
+    await publishCommentCopyState({ status: "loading", count: 0, message: "正在读取评论……" });
+    window.postMessage({ source: EXTENSION_SOURCE, type: "LOAD_BILIBILI_COMMENTS" }, "*");
+  }
+
+  async function handleBilibiliCommentResult(payload) {
+    const identity = getBilibiliIdentity();
+    if (!identity || payload?.pageKey !== identity.pageKey) return;
+    if (payload.error) {
+      pendingCommentCopy = null;
+      await publishCommentCopyState({
+        status: "error",
+        message: `评论读取失败：${String(payload.error)}`
+      });
+      return;
+    }
+    if (!payload.text || !Number(payload.count)) {
+      pendingCommentCopy = null;
+      await publishCommentCopyState({ status: "error", message: "未找到可复制的评论。" });
+      return;
+    }
+    pendingCommentCopy = {
+      pageKey: identity.pageKey,
+      text: String(payload.text),
+      count: Math.max(0, Number(payload.count) || 0)
+    };
+    await copyPendingComments();
   }
 
   function getYouTubeVideoId() {
@@ -94,6 +182,10 @@
       return;
     }
     if (!force && identity.pageKey === currentBilibiliPageKey) return;
+    if (identity.pageKey !== currentBilibiliPageKey) {
+      pendingCommentCopy = null;
+      publishCommentCopyState({ status: "idle" });
+    }
     if (identity.pageKey !== bilibiliRetryPageKey) resetBilibiliRetry(identity.pageKey);
     clearTimeout(bilibiliRetryTimer);
     bilibiliRetryTimer = null;
@@ -416,6 +508,7 @@
     });
     if (latestState) embeddedPanel?.setState(latestState);
     embeddedPanel?.setPlayback(latestPlaybackMs);
+    embeddedPanel?.setCommentCopyState(latestCommentCopyState);
   }
 
   function mountBilibiliPanel() {
@@ -530,6 +623,20 @@
     if (event.data?.type === "BILIBILI_CAPTIONS") {
       handleBilibiliCaptionMessage(event.data.payload).catch(() => {});
     }
+    if (event.data?.type === "BILIBILI_COMMENTS_PROGRESS") {
+      const identity = getBilibiliIdentity();
+      const payload = event.data.payload;
+      if (identity && payload?.pageKey === identity.pageKey) {
+        publishCommentCopyState({
+          status: "loading",
+          count: payload.count,
+          message: `正在读取评论：${Math.max(0, Number(payload.count) || 0)} 条`
+        });
+      }
+    }
+    if (event.data?.type === "BILIBILI_COMMENTS_RESULT") {
+      handleBilibiliCommentResult(event.data.payload).catch(() => {});
+    }
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -548,6 +655,14 @@
     if (message?.type === "REFRESH_CAPTIONS") {
       handleNavigation(true);
       sendResponse({ success: true });
+      return;
+    }
+
+    if (message?.type === "COPY_BILIBILI_COMMENTS") {
+      startBilibiliCommentCopy()
+        .then(() => sendResponse({ success: true }))
+        .catch((error) => sendResponse({ success: false, error: error.message }));
+      return true;
     }
   });
 

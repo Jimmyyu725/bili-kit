@@ -23,6 +23,7 @@
       status: root.querySelector("#status"),
       count: root.querySelector("#count"),
       captionList: root.querySelector("#caption-list"),
+      copyCommentsButton: root.querySelector("#copy-comments-button"),
       copyButton: root.querySelector("#copy-button"),
       downloadSrtButton: root.querySelector("#download-srt-button"),
       downloadTxtButton: root.querySelector("#download-txt-button")
@@ -41,6 +42,7 @@
   let autoScrollActive = true;
   let autoScrollResumeTimer = null;
   let collapsed = false;
+  let commentCopyState = { status: "idle", count: 0, message: "", canRetry: false };
 
   function sendMessage(message) {
     return chrome.runtime.sendMessage(message).catch(() => null);
@@ -49,6 +51,30 @@
   function getSelectedTrack() {
     const tracks = currentState?.tracks || [];
     return tracks.find((track) => track.id === currentTrackId) || tracks[0] || null;
+  }
+
+  function renderCommentCopyButton() {
+    const visible = currentState?.source === "bilibili";
+    elements.copyCommentsButton.hidden = !visible;
+    if (!visible) return;
+    const loading = commentCopyState.status === "loading";
+    elements.copyCommentsButton.disabled = loading || activeTabId == null;
+    elements.copyCommentsButton.textContent = loading
+      ? `读取评论 ${commentCopyState.count || 0} 条`
+      : commentCopyState.canRetry
+        ? "再次复制"
+        : "复制全部评论";
+    if (commentCopyState.message) elements.status.textContent = commentCopyState.message;
+  }
+
+  function setCommentCopyState(state = {}) {
+    commentCopyState = {
+      status: state.status || "idle",
+      count: Math.max(0, Number(state.count) || 0),
+      message: String(state.message || ""),
+      canRetry: Boolean(state.canRetry)
+    };
+    renderCommentCopyButton();
   }
 
   function formatClock(milliseconds) {
@@ -159,6 +185,7 @@
       || (state?.status === "ready" ? "字幕已读取。点击任意字幕可跳转。" : "打开支持的视频后再试。");
     renderTrackOptions();
     renderCaptions();
+    renderCommentCopyButton();
   }
 
   function highlightCurrentCaption(forceScroll = false) {
@@ -221,6 +248,8 @@
   async function loadActiveState() {
     const response = await sendMessage({ type: "GET_ACTIVE_STATE" });
     activeTabId = response?.tabId ?? null;
+    commentCopyState = response?.commentCopyState
+      || { status: "idle", count: 0, message: "", canRetry: false };
     if (!embedded || response?.state) {
       currentState = response?.state ?? null;
       renderState();
@@ -282,6 +311,20 @@
       .join("\n"));
     elements.status.textContent = copied ? "字幕已复制（含时间戳）。" : "复制失败，请使用下载 TXT。";
   });
+  elements.copyCommentsButton.addEventListener("click", async () => {
+    if (activeTabId == null) return;
+    setCommentCopyState({ status: "loading", count: 0, message: "正在读取评论……" });
+    const response = await sendMessage({
+      type: "COPY_BILIBILI_COMMENTS",
+      tabId: activeTabId
+    });
+    if (!response?.success) {
+      setCommentCopyState({
+        status: "error",
+        message: response?.error || "无法开始读取评论。"
+      });
+    }
+  });
   elements.downloadSrtButton.addEventListener("click", () => {
     download("srt", formatSrt(getSelectedTrack()?.captions || []));
   });
@@ -298,7 +341,12 @@
       activeTabId = message.tabId;
       currentState = message.state;
       currentTrackId = "";
+      commentCopyState = message.commentCopyState
+        || { status: "idle", count: 0, message: "", canRetry: false };
       renderState();
+    }
+    if (message?.type === "COMMENTS_COPY_STATE" && message.tabId === activeTabId) {
+      setCommentCopyState(message.state);
     }
     if (message?.type === "PLAYBACK_BROADCAST" && message.tabId === activeTabId) {
       currentTimeMs = message.currentMs;
@@ -318,6 +366,7 @@
         currentTimeMs = currentMs;
         highlightCurrentCaption();
       },
+      setCommentCopyState,
       dispose() {
         mountedRoots.delete(root);
         clearTimeout(autoScrollResumeTimer);

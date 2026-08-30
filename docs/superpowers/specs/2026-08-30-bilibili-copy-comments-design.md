@@ -1,5 +1,7 @@
 # Bilibili 全部评论复制与字幕面板顺序设计
 
+> 状态：初版设计已由 [Bilibili 持续加载与随时复制评论设计](./2026-08-30-bilibili-progressive-comment-copy-design.md) 更新。字幕面板顺序仍按本文执行；评论交互与异常恢复以新设计为准。
+
 ## 目标
 
 为 Caption Lite 的 Bilibili 视频页增加“一键复制全部评论”，同时把嵌入式字幕面板稳定放在“弹幕列表”上方。第一阶段不改变 YouTube 行为。

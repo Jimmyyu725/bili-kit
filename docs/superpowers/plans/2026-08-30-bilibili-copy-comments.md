@@ -1,5 +1,7 @@
 # Bilibili Copy Comments Implementation Plan
 
+> Status: Superseded by [Progressive Bilibili Comment Copy Implementation Plan](./2026-08-30-bilibili-progressive-comment-copy.md) for automatic loading, partial snapshot copying, and cursor recovery.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add stationary background loading and one-click copying of every Bilibili root comment and reply, and place the embedded caption panel above the Bilibili danmaku list.

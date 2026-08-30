@@ -518,8 +518,10 @@
     }
 
     const danmakuBox = document.querySelector("#danmukuBox");
+    if (!danmakuBox) return;
+    const danmakuContainer = danmakuBox.parentElement;
     const player = document.querySelector("#bilibili-player");
-    if (!danmakuBox?.parentElement || !player) return;
+    if (!danmakuContainer || !player) return;
 
     if (embedRoot && !embedRoot.isConnected) removeEmbeddedPanel();
 
@@ -535,28 +537,20 @@
 
     const updateHeight = () => {
       if (!embedRoot?.isConnected) return;
-      const playlist = document.querySelector(".video-pod");
-      const playlistContainer = playlist?.getBoundingClientRect().height > 0
-        ? playlist.parentElement
-        : null;
       const height = embeddedPanelCollapsed
         ? COLLAPSED_PANEL_HEIGHT
         : Math.max(360, player.getBoundingClientRect().height);
 
-      if (paddedBilibiliContainer !== playlistContainer) {
+      if (paddedBilibiliContainer !== danmakuContainer) {
         if (paddedBilibiliContainer) {
           paddedBilibiliContainer.style.paddingTop = originalBilibiliPaddingTop;
         }
-        paddedBilibiliContainer = playlistContainer;
-        originalBilibiliPaddingTop = playlistContainer?.style.paddingTop || "";
+        paddedBilibiliContainer = danmakuContainer;
+        originalBilibiliPaddingTop = danmakuContainer.style.paddingTop || "";
       }
 
-      if (playlistContainer) {
-        playlistContainer.style.paddingTop = `${Math.round(height + 12)}px`;
-        placeEmbedRoot(playlistContainer, height);
-      } else {
-        placeEmbedRoot(danmakuBox, height);
-      }
+      danmakuContainer.style.paddingTop = `${Math.round(height + 12)}px`;
+      placeEmbedRoot(danmakuContainer, height);
     };
     updateHeight();
 

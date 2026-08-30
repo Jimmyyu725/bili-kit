@@ -77,14 +77,15 @@
   }
 
   function normalizeCommentCopyState(state = {}) {
+    const value = state && typeof state === "object" ? state : {};
     return {
-      status: state.status || "idle",
-      count: Math.max(0, Number(state.count) || 0),
-      message: String(state.message || ""),
-      canCopy: Boolean(state.canCopy),
-      canRetry: Boolean(state.canRetry),
-      complete: Boolean(state.complete),
-      limitReached: Boolean(state.limitReached)
+      status: value.status || "idle",
+      count: Math.max(0, Number(value.count) || 0),
+      message: String(value.message || ""),
+      canCopy: Boolean(value.canCopy),
+      canRetry: Boolean(value.canRetry),
+      complete: Boolean(value.complete),
+      limitReached: Boolean(value.limitReached)
     };
   }
 

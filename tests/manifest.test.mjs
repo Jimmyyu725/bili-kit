@@ -115,7 +115,11 @@ assert.match(panelSource, /setCommentCopyState/);
 assert.match(panelSource, /`复制当前 \$\{commentCopyState\.count\} 条`/);
 assert.match(panelSource, /`复制全部 \$\{commentCopyState\.count\} 条`/);
 assert.match(panelSource, /`复制 \$\{commentCopyState\.count\} 条（上限）`/);
-assert.match(panelSource, /limitReached: Boolean\(state\.limitReached\)/);
+assert.match(panelSource, /limitReached: Boolean\(value\.limitReached\)/);
+assert.match(
+  panelSource,
+  /function normalizeCommentCopyState\(state = \{\}\) \{\s*const value = state && typeof state === "object" \? state : \{\};[\s\S]*?status: value\.status \|\| "idle",[\s\S]*?count: Math\.max\(0, Number\(value\.count\) \|\| 0\),[\s\S]*?message: String\(value\.message \|\| ""\),[\s\S]*?canCopy: Boolean\(value\.canCopy\),[\s\S]*?canRetry: Boolean\(value\.canRetry\),[\s\S]*?complete: Boolean\(value\.complete\),[\s\S]*?limitReached: Boolean\(value\.limitReached\)/
+);
 assert.match(panelSource, /"正在加载评论…"/);
 assert.match(panelSource, /activeTabId == null \|\| !commentCopyState\.canCopy/);
 assert.doesNotMatch(panelSource, /setCommentCopyState\(\{ status: "loading", count: 0/);

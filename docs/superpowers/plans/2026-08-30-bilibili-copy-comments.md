@@ -15,7 +15,7 @@
 - Create `src/bilibili-comments.js`: deterministic MD5/WBI signing, reply normalization, thread merging, and clipboard text formatting.
 - Create `tests/bilibili-comments.test.mjs`: unit coverage for the helper module.
 - Modify `manifest.json`: load the helper before `bilibili-main.js` and grant clipboard writing.
-- Modify `src/bilibili-main.js`: load all root replies and nested replies without scrolling, and emit progress/result messages.
+- Modify `src/bilibili-main.js`: load all root replies and missing nested replies without scrolling, emit progress, and return the result through the extension-owned execution channel.
 - Modify `src/content.js`: start/cancel comment jobs, write the clipboard, broadcast compact state, and reposition the Bilibili panel.
 - Modify `src/service-worker.js`: forward copy commands and comment-copy state between the active tab and side panel.
 - Modify `src/sidepanel.html`: add the Bilibili-only copy-comments action.
@@ -98,7 +98,7 @@ Expected: `Bilibili comment helper checks passed.` and exit code 0.
 Set:
 
 ```json
-"test": "node tests/parsers.test.mjs && node tests/bilibili-comments.test.mjs && node tests/manifest.test.mjs"
+"test": "node tests/parsers.test.mjs && node tests/bilibili-comments.test.mjs && node tests/comment-copy-controller.test.mjs && node tests/bilibili-main.test.mjs && node tests/manifest.test.mjs"
 ```
 
 Run: `npm test`
@@ -125,9 +125,9 @@ Assert that the Bilibili MAIN-world script order is:
 
 ```js
 assert.deepEqual(bilibiliMain?.js, ["src/bilibili-comments.js", "src/bilibili-main.js"]);
-assert.match(bilibiliSource, /LOAD_BILIBILI_COMMENTS/);
 assert.match(bilibiliSource, /BILIBILI_COMMENTS_PROGRESS/);
-assert.match(bilibiliSource, /BILIBILI_COMMENTS_RESULT/);
+assert.match(bilibiliSource, /CaptionLiteBilibiliCommentLoader/);
+assert.doesNotMatch(bilibiliSource, /BILIBILI_COMMENTS_RESULT/);
 assert.match(bilibiliSource, /\/x\/v2\/reply\/wbi\/main/);
 assert.match(bilibiliSource, /\/x\/v2\/reply\/reply/);
 ```
@@ -140,7 +140,7 @@ Expected: FAIL because the helper is not loaded and comment message/API strings 
 
 - [ ] **Step 3: Implement serial root and child pagination**
 
-Add `commentRequestId`, `postComments(type, payload)`, and `loadAllComments()` to `bilibili-main.js`. Resolve `aid` with the already-used view response, fetch WBI image keys from `/x/web-interface/nav`, and sign root-page parameters:
+Add an abortable request generation, progress-only `postComments(type, payload)`, and `loadAllComments()` to `bilibili-main.js`. Expose the loader through `CaptionLiteBilibiliCommentLoader` so the service worker can invoke it in the MAIN world without trusting page-authored result messages. Resolve `aid` with the already-used view response, fetch WBI image keys from `/x/web-interface/nav`, and sign root-page parameters:
 
 ```js
 const params = signWbiParams({
@@ -154,7 +154,7 @@ const params = signWbiParams({
 }, imgKey, subKey);
 ```
 
-Read `data.top_replies` once, `data.replies` on every page, and continue with `data.cursor.pagination_reply.next_offset` until `data.cursor.is_end`. For every normalized root with `rcount > 0`, fetch `/x/v2/reply/reply` with `{ oid, type: 1, root: rpid, pn, ps: 20 }` until `pn * ps >= data.page.count`. After each batch, post `{ pageKey, count }` as `BILIBILI_COMMENTS_PROGRESS`. On completion post `{ pageKey, count, text }` as `BILIBILI_COMMENTS_RESULT`; on failure post a result with `error` and no text. Check `requestId` and `pageKey` after each await so navigation makes stale work exit silently.
+Read `data.top_replies` once, `data.replies` on every page, and continue with `data.cursor.pagination_reply.next_offset` until `data.cursor.is_end`. Only when a normalized root has `rcount` greater than its embedded reply count, fetch `/x/v2/reply/reply` with `{ oid, type: 1, root: rpid, pn, ps: 20 }` until `pn * ps >= data.page.count`. After each batch, post `{ pageKey, count }` as `BILIBILI_COMMENTS_PROGRESS`. Return the final `{ pageKey, count, text }` value from the exposed loader; the service worker invokes it with `chrome.scripting.executeScript` and relays the value through the extension-owned channel. Check request generation, abort signal, and `pageKey` after each await so navigation makes stale work exit silently.
 
 - [ ] **Step 4: Run integration and full tests**
 
@@ -228,16 +228,9 @@ Clicking sends `{ type: "COPY_BILIBILI_COMMENTS", tabId: activeTabId }`. Expose 
 
 The service worker forwards `COPY_BILIBILI_COMMENTS` to the tab and rebroadcasts tab-originated `COMMENTS_COPY_STATE` with `tabId`.
 
-In `content.js`, keep `pendingCommentCopy = { pageKey, text, count } | null`. On a copy command, retry pending clipboard text for the same page before starting a new fetch. Otherwise emit loading state and post `LOAD_BILIBILI_COMMENTS` to the page. Convert page progress/result messages into compact panel states. On success:
+In `content.js`, use a comment-copy controller that keeps pending clipboard text for the same page and retries it before starting a new fetch. Otherwise emit loading state and request `FETCH_BILIBILI_COMMENTS` from the service worker. Accept page messages only for progress while an active task exists; accept full results only from the extension response. On success:
 
-```js
-pendingCommentCopy = { pageKey: payload.pageKey, text: payload.text, count: payload.count };
-const copied = await copyCommentText(payload.text);
-if (copied) pendingCommentCopy = null;
-publishCommentCopyState(copied
-  ? { status: "success", count: payload.count, message: `已复制 ${payload.count} 条评论。` }
-  : { status: "error", count: payload.count, message: "复制失败，请再次点击复制。" });
-```
+The controller stores `{ pageKey, text, count }` only after receiving a successful extension-channel result, writes the text, and retains it solely when clipboard access fails so the next click retries without fetching again.
 
 `copyCommentText` first uses `navigator.clipboard.writeText`, then a hidden textarea plus `document.execCommand("copy")`. Clear pending text when the Bilibili `pageKey` changes.
 

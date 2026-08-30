@@ -94,6 +94,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "FETCH_BILIBILI_COMMENTS" && sender.tab?.id != null) {
+    (async () => {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: sender.tab.id },
+        world: "MAIN",
+        func: () => {
+          const loader = globalThis.CaptionLiteBilibiliCommentLoader;
+          if (!loader) return { error: "评论读取器尚未就绪" };
+          return loader.loadAllComments();
+        }
+      });
+      const result = results?.[0]?.result;
+      if (!result || result.error) {
+        sendResponse({ success: false, error: result?.error || "评论读取失败" });
+        return;
+      }
+      sendResponse({ success: true, ...result });
+    })().catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if ((message?.type === "SEEK"
       || message?.type === "REFRESH_CAPTIONS"
       || message?.type === "COPY_BILIBILI_COMMENTS")

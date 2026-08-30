@@ -7,7 +7,8 @@
   "permissions": [
     "storage",
     "sidePanel",
-    "clipboardWrite"
+    "clipboardWrite",
+    "scripting"
   ],
   "host_permissions": [
     "https://*.youtube.com/*",
@@ -76,6 +77,7 @@
       ],
       "js": [
         "src/parsers.js",
+        "src/comment-copy-controller.js",
         "src/sidepanel.js",
         "src/content.js"
       ],

@@ -51,7 +51,7 @@
 
       let response;
       try {
-        response = await requestComments();
+        response = await requestComments(pageKey);
       } catch (error) {
         response = {
           success: false,

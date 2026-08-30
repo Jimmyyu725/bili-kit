@@ -109,7 +109,10 @@
 
   const commentCopyController = globalThis.CaptionLiteCommentCopy.createController({
     getPageKey: () => getBilibiliIdentity()?.pageKey || "",
-    requestComments: () => sendRuntimeMessage({ type: "FETCH_BILIBILI_COMMENTS" }),
+    requestComments: (pageKey) => sendRuntimeMessage({
+      type: "FETCH_BILIBILI_COMMENTS",
+      pageKey
+    }),
     copyText: copyCommentText,
     publishState: publishCommentCopyState
   });
@@ -573,12 +576,14 @@
     if (event.data?.type === "BILIBILI_CAPTIONS") {
       handleBilibiliCaptionMessage(event.data.payload).catch(() => {});
     }
-    if (event.data?.type === "BILIBILI_COMMENTS_PROGRESS") {
-      commentCopyController.updateProgress(event.data.payload);
-    }
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "BILIBILI_COMMENTS_PROGRESS") {
+      sendResponse({ success: commentCopyController.updateProgress(message.payload) });
+      return;
+    }
+
     if (message?.type === "SEEK") {
       bindVideo();
       if (!boundVideo || !Number.isFinite(message.startMs)) {

@@ -19,11 +19,15 @@ function deferred() {
 {
   let pageKey = "BV1:1";
   const request = deferred();
+  const requestedPageKeys = [];
   const states = [];
   const copied = [];
   const controller = createController({
     getPageKey: () => pageKey,
-    requestComments: () => request.promise,
+    requestComments: (requestedPageKey) => {
+      requestedPageKeys.push(requestedPageKey);
+      return request.promise;
+    },
     copyText: async (text) => { copied.push(text); return true; },
     publishState: (state) => states.push(state)
   });
@@ -33,6 +37,7 @@ function deferred() {
   assert.equal(controller.updateProgress({ pageKey, count: 7 }), true);
   request.resolve({ success: true, pageKey, count: 2, text: "comments" });
   assert.equal(await running, true);
+  assert.deepEqual(requestedPageKeys, ["BV1:1"]);
   assert.deepEqual(copied, ["comments"]);
   assert.deepEqual(states.map(({ status, count }) => ({ status, count })), [
     { status: "loading", count: 0 },

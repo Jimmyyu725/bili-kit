@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "node tests/parsers.test.mjs && node tests/bilibili-comments.test.mjs && node tests/comment-copy-controller.test.mjs && node tests/bilibili-main.test.mjs && node tests/manifest.test.mjs"
+    "test": "node tests/parsers.test.mjs && node tests/bilibili-comments.test.mjs && node tests/comment-job-registry.test.mjs && node tests/comment-copy-controller.test.mjs && node tests/bilibili-comment-loader.test.mjs && node tests/manifest.test.mjs"
   }
 }

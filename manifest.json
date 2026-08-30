@@ -8,7 +8,7 @@
     "storage",
     "sidePanel",
     "clipboardWrite",
-    "scripting"
+    "webNavigation"
   ],
   "host_permissions": [
     "https://*.youtube.com/*",
@@ -64,7 +64,6 @@
         "https://*.bilibili.com/*"
       ],
       "js": [
-        "src/bilibili-comments.js",
         "src/bilibili-main.js"
       ],
       "run_at": "document_start",

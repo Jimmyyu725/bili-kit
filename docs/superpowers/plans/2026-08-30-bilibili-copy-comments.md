@@ -4,7 +4,7 @@
 
 **Goal:** Add stationary background loading and one-click copying of every Bilibili root comment and reply, and place the embedded caption panel above the Bilibili danmaku list.
 
-**Architecture:** A dependency-free page-world helper owns WBI signing, reply normalization, deduplication, and text formatting. `bilibili-main.js` performs authenticated serial pagination and reports progress through the existing page/content message bridge; `content.js` owns clipboard writing and forwards compact UI state through the service worker. The panel renders one Bilibili-only action, while the existing absolute-position strategy anchors against the danmaku container instead of the playlist.
+**Architecture:** Dependency-free helpers in the extension service worker own WBI signing, reply normalization, deduplication, text formatting, serial pagination, and navigation generations. Chrome-owned runtime messaging carries both progress and results; the page MAIN world never exposes or returns comment data. `content.js` owns clipboard writing and compact UI state. The panel renders one Bilibili-only action, while the existing absolute-position strategy anchors against the danmaku container instead of the playlist.
 
 **Tech Stack:** Chrome Manifest V3, browser JavaScript, Bilibili web APIs, Node.js built-in test runner primitives, Git.
 
@@ -14,10 +14,10 @@
 
 - Create `src/bilibili-comments.js`: deterministic MD5/WBI signing, reply normalization, thread merging, and clipboard text formatting.
 - Create `tests/bilibili-comments.test.mjs`: unit coverage for the helper module.
-- Modify `manifest.json`: load the helper before `bilibili-main.js` and grant clipboard writing.
-- Modify `src/bilibili-main.js`: load all root replies and missing nested replies without scrolling, emit progress, and return the result through the extension-owned execution channel.
+- Modify `manifest.json`: grant clipboard writing and navigation-event access.
+- Create `src/bilibili-comment-loader.js` and `src/comment-job-registry.js`: load comments in the service worker and invalidate jobs on every navigation generation.
 - Modify `src/content.js`: start/cancel comment jobs, write the clipboard, broadcast compact state, and reposition the Bilibili panel.
-- Modify `src/service-worker.js`: forward copy commands and comment-copy state between the active tab and side panel.
+- Modify `src/service-worker.js`: perform comment loading, forward Chrome-owned progress/results, and cancel on committed/history navigation.
 - Modify `src/sidepanel.html`: add the Bilibili-only copy-comments action.
 - Modify `src/sidepanel.css`: lay out the new full-width action without compressing existing caption actions.
 - Modify `src/sidepanel.js`: render comment-copy state and trigger the command.
@@ -98,7 +98,7 @@ Expected: `Bilibili comment helper checks passed.` and exit code 0.
 Set:
 
 ```json
-"test": "node tests/parsers.test.mjs && node tests/bilibili-comments.test.mjs && node tests/comment-copy-controller.test.mjs && node tests/bilibili-main.test.mjs && node tests/manifest.test.mjs"
+"test": "node tests/parsers.test.mjs && node tests/bilibili-comments.test.mjs && node tests/comment-job-registry.test.mjs && node tests/comment-copy-controller.test.mjs && node tests/bilibili-comment-loader.test.mjs && node tests/manifest.test.mjs"
 ```
 
 Run: `npm test`
@@ -116,7 +116,9 @@ git commit -m "功能：增加 Bilibili 评论数据工具"
 
 **Files:**
 - Modify: `manifest.json`
-- Modify: `src/bilibili-main.js`
+- Create: `src/bilibili-comment-loader.js`
+- Create: `src/comment-job-registry.js`
+- Modify: `src/service-worker.js`
 - Modify: `tests/manifest.test.mjs`
 
 - [ ] **Step 1: Write failing manifest/source assertions**
@@ -124,23 +126,22 @@ git commit -m "功能：增加 Bilibili 评论数据工具"
 Assert that the Bilibili MAIN-world script order is:
 
 ```js
-assert.deepEqual(bilibiliMain?.js, ["src/bilibili-comments.js", "src/bilibili-main.js"]);
-assert.match(bilibiliSource, /BILIBILI_COMMENTS_PROGRESS/);
-assert.match(bilibiliSource, /CaptionLiteBilibiliCommentLoader/);
-assert.doesNotMatch(bilibiliSource, /BILIBILI_COMMENTS_RESULT/);
-assert.match(bilibiliSource, /\/x\/v2\/reply\/wbi\/main/);
-assert.match(bilibiliSource, /\/x\/v2\/reply\/reply/);
+assert.deepEqual(bilibiliMain?.js, ["src/bilibili-main.js"]);
+assert.doesNotMatch(bilibiliSource, /CaptionLiteBilibiliCommentLoader|BILIBILI_COMMENTS_/);
+assert.match(serviceWorkerSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/);
+assert.match(serviceWorkerSource, /chrome\.webNavigation\.onHistoryStateUpdated/);
+assert.doesNotMatch(serviceWorkerSource, /chrome\.scripting\.executeScript/);
 ```
 
 - [ ] **Step 2: Run integration test and verify RED**
 
 Run: `node tests/manifest.test.mjs`
 
-Expected: FAIL because the helper is not loaded and comment message/API strings are absent.
+Expected: FAIL because the worker loader, navigation registry, and permission are absent.
 
 - [ ] **Step 3: Implement serial root and child pagination**
 
-Add an abortable request generation, progress-only `postComments(type, payload)`, and `loadAllComments()` to `bilibili-main.js`. Expose the loader through `CaptionLiteBilibiliCommentLoader` so the service worker can invoke it in the MAIN world without trusting page-authored result messages. Resolve `aid` with the already-used view response, fetch WBI image keys from `/x/web-interface/nav`, and sign root-page parameters:
+Add an abortable loader to `bilibili-comment-loader.js`, import it only in the service worker, and resolve `aid` from the Bilibili view response. Fetch WBI image keys from `/x/web-interface/nav` and sign root-page parameters:
 
 ```js
 const params = signWbiParams({
@@ -154,7 +155,7 @@ const params = signWbiParams({
 }, imgKey, subKey);
 ```
 
-Read `data.top_replies` once, `data.replies` on every page, and continue with `data.cursor.pagination_reply.next_offset` until `data.cursor.is_end`. Only when a normalized root has `rcount` greater than its embedded reply count, fetch `/x/v2/reply/reply` with `{ oid, type: 1, root: rpid, pn, ps: 20 }` until `pn * ps >= data.page.count`. After each batch, post `{ pageKey, count }` as `BILIBILI_COMMENTS_PROGRESS`. Return the final `{ pageKey, count, text }` value from the exposed loader; the service worker invokes it with `chrome.scripting.executeScript` and relays the value through the extension-owned channel. Check request generation, abort signal, and `pageKey` after each await so navigation makes stale work exit silently.
+Read `data.top_replies` once, `data.replies` on every page, and continue with `data.cursor.pagination_reply.next_offset` until `data.cursor.is_end`. Only when a normalized root has `rcount` greater than its embedded reply count, fetch `/x/v2/reply/reply` with `{ oid, type: 1, root: rpid, pn, ps: 20 }` until `pn * ps >= data.page.count`. The service worker forwards `{ pageKey, count }` progress through `chrome.tabs.sendMessage` and returns the final `{ pageKey, count, text }` directly to the requesting content script. A monotonic per-job token plus `webNavigation.onCommitted` and `onHistoryStateUpdated` invalidates even fast A → B → A transitions.
 
 - [ ] **Step 4: Run integration and full tests**
 
@@ -165,7 +166,7 @@ Expected: both commands exit 0.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add manifest.json src/bilibili-main.js tests/manifest.test.mjs
+git add manifest.json src/bilibili-comment-loader.js src/comment-job-registry.js src/service-worker.js tests/manifest.test.mjs
 git commit -m "功能：后台分页读取 Bilibili 全部评论"
 ```
 
@@ -190,7 +191,7 @@ assert.match(panelMarkup, /id="copy-comments-button"/);
 assert.match(panelStyles, /\.copy-comments-button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
 assert.match(panelSource, /COPY_BILIBILI_COMMENTS/);
 assert.match(panelSource, /setCommentCopyState/);
-assert.match(contentSource, /BILIBILI_COMMENTS_PROGRESS/);
+assert.match(contentSource, /FETCH_BILIBILI_COMMENTS/);
 assert.match(contentSource, /navigator\.clipboard\.writeText/);
 assert.match(serviceWorkerSource, /COMMENTS_COPY_STATE/);
 ```
@@ -228,7 +229,7 @@ Clicking sends `{ type: "COPY_BILIBILI_COMMENTS", tabId: activeTabId }`. Expose 
 
 The service worker forwards `COPY_BILIBILI_COMMENTS` to the tab and rebroadcasts tab-originated `COMMENTS_COPY_STATE` with `tabId`.
 
-In `content.js`, use a comment-copy controller that keeps pending clipboard text for the same page and retries it before starting a new fetch. Otherwise emit loading state and request `FETCH_BILIBILI_COMMENTS` from the service worker. Accept page messages only for progress while an active task exists; accept full results only from the extension response. On success:
+In `content.js`, use a comment-copy controller that keeps pending clipboard text for the same page and retries it before starting a new fetch. Otherwise emit loading state and request `FETCH_BILIBILI_COMMENTS` from the service worker. Accept progress and full results only from Chrome runtime messages. On success:
 
 The controller stores `{ pageKey, text, count }` only after receiving a successful extension-channel result, writes the text, and retains it solely when clipboard access fails so the next click retries without fetching again.
 

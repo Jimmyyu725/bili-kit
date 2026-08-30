@@ -1,9 +1,15 @@
 "use strict";
 
-importScripts("parsers.js");
+importScripts(
+  "parsers.js",
+  "bilibili-comments.js",
+  "bilibili-comment-loader.js",
+  "comment-job-registry.js"
+);
 
 const STATE_PREFIX = "caption-state:";
 const COMMENT_STATE_PREFIX = "comment-copy-state:";
+const commentJobs = globalThis.CaptionLiteCommentJobs.createRegistry();
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
@@ -36,6 +42,19 @@ async function broadcast(message) {
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   return tab || null;
+}
+
+function getBilibiliIdentity(urlValue) {
+  try {
+    const url = new URL(urlValue);
+    if (url.hostname !== "bilibili.com" && !url.hostname.endsWith(".bilibili.com")) return null;
+    const videoId = url.pathname.match(/\/video\/(BV[^/?]+|av\d+)/i)?.[1];
+    if (!videoId) return null;
+    const pageNumber = Math.max(1, Number(url.searchParams.get("p")) || 1);
+    return { videoId, pageKey: `${videoId}:${pageNumber}` };
+  } catch {
+    return null;
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -96,21 +115,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "FETCH_BILIBILI_COMMENTS" && sender.tab?.id != null) {
     (async () => {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: sender.tab.id },
-        world: "MAIN",
-        func: () => {
-          const loader = globalThis.CaptionLiteBilibiliCommentLoader;
-          if (!loader) return { error: "评论读取器尚未就绪" };
-          return loader.loadAllComments();
-        }
-      });
-      const result = results?.[0]?.result;
-      if (!result || result.error) {
-        sendResponse({ success: false, error: result?.error || "评论读取失败" });
+      const tabId = sender.tab.id;
+      const identity = getBilibiliIdentity(sender.tab.url);
+      if (!identity || identity.pageKey !== message.pageKey) {
+        sendResponse({ success: false, error: "当前 Bilibili 视频已变化" });
         return;
       }
-      sendResponse({ success: true, ...result });
+
+      const job = commentJobs.begin(tabId);
+      try {
+        const result = await globalThis.CaptionLiteBilibiliCommentLoader.loadAllComments({
+          pageKey: identity.pageKey,
+          videoId: identity.videoId,
+          signal: job.signal,
+          isCurrent: job.isCurrent,
+          onProgress(count) {
+            if (!job.isCurrent()) return;
+            chrome.tabs.sendMessage(tabId, {
+              type: "BILIBILI_COMMENTS_PROGRESS",
+              payload: { pageKey: identity.pageKey, count }
+            }).catch(() => {});
+          }
+        });
+
+        const currentTab = await chrome.tabs.get(tabId);
+        const currentIdentity = getBilibiliIdentity(currentTab.url);
+        if (!job.isCurrent() || currentIdentity?.pageKey !== identity.pageKey) {
+          sendResponse({ success: false, error: "评论任务已取消" });
+          return;
+        }
+        if (!result || result.error) {
+          sendResponse({ success: false, error: result?.error || "评论读取失败" });
+          return;
+        }
+        sendResponse({ success: true, ...result });
+      } finally {
+        commentJobs.complete(job);
+      }
     })().catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
@@ -137,6 +178,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (!changeInfo.url) return;
+  commentJobs.invalidate(tabId);
   await chrome.storage.session.remove([stateKey(tabId), commentStateKey(tabId)]);
   const activeTab = await getActiveTab();
   if (activeTab?.id === tabId) {
@@ -145,5 +187,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  commentJobs.invalidate(tabId);
   chrome.storage.session.remove([stateKey(tabId), commentStateKey(tabId)]).catch(() => {});
 });
+
+function invalidateCommentJobForNavigation(details) {
+  if (details.frameId === 0) commentJobs.invalidate(details.tabId);
+}
+
+chrome.webNavigation.onCommitted.addListener(invalidateCommentJobForNavigation);
+chrome.webNavigation.onHistoryStateUpdated.addListener(invalidateCommentJobForNavigation);

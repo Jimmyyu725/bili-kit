@@ -8,7 +8,7 @@ const manifest = JSON.parse(await readFile(resolve(projectRoot, "manifest.json")
 
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.minimum_chrome_version, "114");
-assert.deepEqual(manifest.permissions.sort(), ["clipboardWrite", "scripting", "sidePanel", "storage"]);
+assert.deepEqual(manifest.permissions.sort(), ["clipboardWrite", "sidePanel", "storage", "webNavigation"]);
 assert.ok(!manifest.host_permissions.includes("<all_urls>"));
 assert.ok(!manifest.host_permissions.includes("https://translation.googleapis.com/*"));
 assert.deepEqual(Object.keys(manifest.icons), ["16", "32", "48", "128"]);
@@ -21,7 +21,7 @@ const bilibiliMain = manifest.content_scripts.find((script) =>
   script.js?.includes("src/bilibili-main.js")
 );
 assert.equal(bilibiliMain?.world, "MAIN");
-assert.deepEqual(bilibiliMain?.js, ["src/bilibili-comments.js", "src/bilibili-main.js"]);
+assert.deepEqual(bilibiliMain?.js, ["src/bilibili-main.js"]);
 const youtubeMain = manifest.content_scripts.find((script) =>
   script.js?.includes("src/youtube-main.js")
 );
@@ -66,10 +66,10 @@ assert.match(contentSource, /bilibiliRetryDelay \* 1\.6/);
 assert.match(contentSource, /BILIBILI_MAX_RETRY_DELAY = 10_000/);
 assert.match(contentSource, /loadBilibili\(true\)/);
 assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.pageKey\)/);
-assert.match(contentSource, /BILIBILI_COMMENTS_PROGRESS/);
 assert.match(contentSource, /navigator\.clipboard\.writeText/);
 assert.match(contentSource, /CaptionLiteCommentCopy/);
 assert.match(contentSource, /FETCH_BILIBILI_COMMENTS/);
+assert.match(contentSource, /requestComments: \(pageKey\)/);
 assert.doesNotMatch(contentSource, /BILIBILI_COMMENTS_RESULT/);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
@@ -110,20 +110,19 @@ const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-wor
 assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.googleapis\.com|private-config/);
 assert.match(serviceWorkerSource, /COPY_BILIBILI_COMMENTS/);
 assert.match(serviceWorkerSource, /COMMENTS_COPY_STATE/);
-assert.match(serviceWorkerSource, /chrome\.scripting\.executeScript/);
 assert.match(serviceWorkerSource, /FETCH_BILIBILI_COMMENTS/);
+assert.match(serviceWorkerSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/);
+assert.match(serviceWorkerSource, /CaptionLiteCommentJobs\.createRegistry/);
+assert.match(serviceWorkerSource, /chrome\.webNavigation\.onHistoryStateUpdated/);
+assert.match(serviceWorkerSource, /chrome\.webNavigation\.onCommitted/);
+assert.doesNotMatch(serviceWorkerSource, /chrome\.scripting\.executeScript/);
 
 const bilibiliSource = await readFile(resolve(projectRoot, "src/bilibili-main.js"), "utf8");
 assert.match(bilibiliSource, /LOAD_BILIBILI"\) load\(true\)/);
 assert.match(bilibiliSource, /setInterval\(\(\) => load\(false\), 500\)/);
-assert.match(bilibiliSource, /BILIBILI_COMMENTS_PROGRESS/);
-assert.match(bilibiliSource, /CaptionLiteBilibiliCommentLoader/);
-assert.doesNotMatch(bilibiliSource, /BILIBILI_COMMENTS_RESULT/);
-assert.match(bilibiliSource, /\/x\/v2\/reply\/wbi\/main/);
-assert.match(bilibiliSource, /\/x\/v2\/reply\/reply/);
-assert.match(bilibiliSource, /async function fetchWbiKeys\(signal\)/);
-assert.match(bilibiliSource, /extractWbiKeys\(data\?\.wbi_img\)/);
-assert.doesNotMatch(bilibiliSource, /fetchJson\("https:\/\/api\.bilibili\.com\/x\/web-interface\/nav"\)/);
+assert.doesNotMatch(bilibiliSource, /BILIBILI_COMMENTS_(?:PROGRESS|RESULT)/);
+assert.doesNotMatch(bilibiliSource, /CaptionLiteBilibiliCommentLoader/);
+assert.doesNotMatch(bilibiliSource, /\/x\/v2\/reply\//);
 
 const youtubeSource = await readFile(resolve(projectRoot, "src/youtube-main.js"), "utf8");
 assert.match(youtubeSource, /getPlayerResponse\(\)/);

@@ -21,6 +21,7 @@ const bilibiliMain = manifest.content_scripts.find((script) =>
   script.js?.includes("src/bilibili-main.js")
 );
 assert.equal(bilibiliMain?.world, "MAIN");
+assert.deepEqual(bilibiliMain?.js, ["src/bilibili-comments.js", "src/bilibili-main.js"]);
 const youtubeMain = manifest.content_scripts.find((script) =>
   script.js?.includes("src/youtube-main.js")
 );
@@ -97,6 +98,14 @@ assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.google
 const bilibiliSource = await readFile(resolve(projectRoot, "src/bilibili-main.js"), "utf8");
 assert.match(bilibiliSource, /LOAD_BILIBILI"\) load\(true\)/);
 assert.match(bilibiliSource, /setInterval\(\(\) => load\(false\), 500\)/);
+assert.match(bilibiliSource, /LOAD_BILIBILI_COMMENTS/);
+assert.match(bilibiliSource, /BILIBILI_COMMENTS_PROGRESS/);
+assert.match(bilibiliSource, /BILIBILI_COMMENTS_RESULT/);
+assert.match(bilibiliSource, /\/x\/v2\/reply\/wbi\/main/);
+assert.match(bilibiliSource, /\/x\/v2\/reply\/reply/);
+assert.match(bilibiliSource, /async function fetchWbiKeys\(\)/);
+assert.match(bilibiliSource, /extractWbiKeys\(data\?\.wbi_img\)/);
+assert.doesNotMatch(bilibiliSource, /fetchJson\("https:\/\/api\.bilibili\.com\/x\/web-interface\/nav"\)/);
 
 const youtubeSource = await readFile(resolve(projectRoot, "src/youtube-main.js"), "utf8");
 assert.match(youtubeSource, /getPlayerResponse\(\)/);

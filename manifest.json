@@ -62,6 +62,7 @@
         "https://*.bilibili.com/*"
       ],
       "js": [
+        "src/bilibili-comments.js",
         "src/bilibili-main.js"
       ],
       "run_at": "document_start",

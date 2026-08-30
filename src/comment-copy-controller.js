@@ -1,120 +1,181 @@
 (() => {
   "use strict";
 
-  function createController({ getPageKey, requestComments, copyText, publishState }) {
+  function createController({ getPageKey, loadComments, copyText, publishState }) {
     let generation = 0;
     let activeJob = null;
-    let pendingCopy = null;
+    let latestSnapshot = null;
+    let latestStatus = "idle";
+
+    function emit(state) {
+      latestStatus = state?.status || "idle";
+      return publishState({
+        status: latestStatus,
+        count: Math.max(0, Number(state?.count) || 0),
+        message: String(state?.message || ""),
+        canCopy: Boolean(state?.canCopy),
+        canRetry: Boolean(state?.canRetry),
+        complete: Boolean(state?.complete)
+      });
+    }
 
     function cancelActiveJob() {
       activeJob?.abortController.abort();
       activeJob = null;
     }
 
-    function emit(state) {
-      return publishState({
-        status: state?.status || "idle",
-        count: Math.max(0, Number(state?.count) || 0),
-        message: String(state?.message || ""),
-        canRetry: Boolean(state?.canRetry)
+    function isCurrentJob(job) {
+      return activeJob === job
+        && job.generation === generation
+        && getPageKey() === job.pageKey
+        && !job.abortController.signal.aborted;
+    }
+
+    function normalizeSnapshot(value) {
+      return {
+        pageKey: String(value?.pageKey || ""),
+        count: Math.max(0, Number(value?.count) || 0),
+        text: String(value?.text || ""),
+        complete: Boolean(value?.complete),
+        phase: String(value?.phase || "roots")
+      };
+    }
+
+    function acceptSnapshot(job, value) {
+      if (!isCurrentJob(job)) return false;
+      const snapshot = normalizeSnapshot(value);
+      if (snapshot.pageKey !== job.pageKey) return false;
+      if (latestSnapshot?.pageKey === job.pageKey && snapshot.count < latestSnapshot.count) return false;
+      latestSnapshot = snapshot;
+      emit({
+        status: snapshot.complete ? "complete" : "loading",
+        count: snapshot.count,
+        canCopy: snapshot.count > 0,
+        complete: snapshot.complete,
+        message: snapshot.complete
+          ? "全部评论已加载。"
+          : `正在加载评论：${snapshot.count} 条`
       });
+      return true;
     }
 
-    async function copyPending() {
-      if (!pendingCopy) return false;
-      let copied = false;
-      try {
-        copied = await copyText(pendingCopy.text);
-      } catch {
-        copied = false;
-      }
-      const count = pendingCopy.count;
-      if (copied) pendingCopy = null;
-      await emit(copied
-        ? { status: "success", count, message: `已复制 ${count} 条评论。` }
-        : {
-            status: "error",
-            count,
-            canRetry: true,
-            message: "复制失败，请再次点击复制。"
-          });
-      return copied;
+    function acceptRetry(job) {
+      if (!isCurrentJob(job)) return false;
+      const count = latestSnapshot?.count || 0;
+      emit({
+        status: "retrying",
+        count,
+        canCopy: count > 0,
+        message: `加载暂时停在 ${count} 条，正在自动重试……`
+      });
+      return true;
     }
 
-    async function start() {
-      const pageKey = String(getPageKey() || "");
-      if (!pageKey) {
-        await emit({ status: "error", message: "请先打开 Bilibili 视频。" });
-        return false;
-      }
-      if (pendingCopy?.pageKey === pageKey) return copyPending();
-      pendingCopy = null;
-
-      cancelActiveJob();
-      const abortController = new AbortController();
-      const job = { abortController, generation: ++generation, pageKey };
-      activeJob = job;
-      await emit({ status: "loading", count: 0, message: "正在读取评论……" });
-      if (activeJob?.generation !== job.generation || abortController.signal.aborted) return false;
-
-      let response;
-      try {
-        response = await requestComments(pageKey, { signal: abortController.signal });
-      } catch (error) {
-        response = {
-          success: false,
-          error: error instanceof Error ? error.message : "评论读取失败"
-        };
-      }
-
-      if (activeJob?.generation !== job.generation || getPageKey() !== pageKey) return false;
-      activeJob = null;
-      if (!response?.success) {
+    async function finishLoading(job, result) {
+      if (!isCurrentJob(job)) return false;
+      if (result?.error) {
+        activeJob = null;
+        const count = latestSnapshot?.count || 0;
         await emit({
           status: "error",
-          message: `评论读取失败：${String(response?.error || "未知错误")}`
+          count,
+          canCopy: count > 0,
+          message: `评论读取失败：${String(result.error)}`
         });
         return false;
       }
-      if (response.pageKey !== pageKey) {
-        await emit({ status: "error", message: "评论结果与当前视频不匹配。" });
+      if (result?.cancelled) {
+        activeJob = null;
         return false;
       }
-      if (!response.text || !Number(response.count)) {
-        await emit({ status: "error", message: "未找到可复制的评论。" });
-        return false;
-      }
-
-      pendingCopy = {
-        pageKey,
-        text: String(response.text),
-        count: Math.max(0, Number(response.count) || 0)
-      };
-      return copyPending();
+      acceptSnapshot(job, result);
+      const completed = Boolean(latestSnapshot?.complete);
+      activeJob = null;
+      return completed;
     }
 
-    function updateProgress(progress) {
-      const pageKey = String(progress?.pageKey || "");
-      if (!activeJob
-          || activeJob.pageKey !== pageKey
-          || getPageKey() !== pageKey) return false;
-      const count = Math.max(0, Number(progress?.count) || 0);
-      emit({
-        status: "loading",
-        count,
-        message: `正在读取评论：${count} 条`
+    function startLoading() {
+      const pageKey = String(getPageKey() || "");
+      if (!pageKey) {
+        emit({ status: "error", message: "请先打开 Bilibili 视频。" });
+        return Promise.resolve(false);
+      }
+      if (activeJob?.pageKey === pageKey) return activeJob.promise;
+      if (latestSnapshot?.pageKey === pageKey && latestSnapshot.complete) {
+        return Promise.resolve(true);
+      }
+
+      cancelActiveJob();
+      latestSnapshot = null;
+      const abortController = new AbortController();
+      const job = {
+        abortController,
+        generation: ++generation,
+        pageKey,
+        promise: null
+      };
+      activeJob = job;
+      emit({ status: "loading", count: 0, canCopy: false, message: "正在加载评论……" });
+
+      job.promise = Promise.resolve()
+        .then(() => loadComments(pageKey, {
+          signal: abortController.signal,
+          onSnapshot: (value) => acceptSnapshot(job, value),
+          onRetry: () => acceptRetry(job)
+        }))
+        .catch((error) => ({
+          pageKey,
+          error: error instanceof Error ? error.message : "评论读取失败"
+        }))
+        .then((result) => finishLoading(job, result));
+      return job.promise;
+    }
+
+    async function copyCurrent() {
+      const pageKey = String(getPageKey() || "");
+      if (!latestSnapshot?.count || latestSnapshot.pageKey !== pageKey) {
+        await emit({
+          status: activeJob ? "loading" : "idle",
+          count: 0,
+          canCopy: false,
+          message: "评论仍在准备中……"
+        });
+        return false;
+      }
+
+      let copied = false;
+      try {
+        copied = await copyText(latestSnapshot.text);
+      } catch {
+        copied = false;
+      }
+      const loading = Boolean(activeJob) && !latestSnapshot.complete;
+      const status = latestSnapshot.complete
+        ? "complete"
+        : latestStatus === "retrying" ? "retrying" : loading ? "loading" : "error";
+      await emit({
+        status,
+        count: latestSnapshot.count,
+        complete: latestSnapshot.complete,
+        canCopy: true,
+        canRetry: !copied,
+        message: copied
+          ? latestSnapshot.complete
+            ? `已复制全部 ${latestSnapshot.count} 条评论。`
+            : `已复制 ${latestSnapshot.count} 条，仍在继续加载……`
+          : "复制失败，请再次点击复制。"
       });
-      return true;
+      return copied;
     }
 
     function invalidate() {
       generation += 1;
       cancelActiveJob();
-      pendingCopy = null;
+      latestSnapshot = null;
       emit({ status: "idle" });
     }
 
-    return { invalidate, start, updateProgress };
+    return { copyCurrent, invalidate, startLoading };
   }
 
   globalThis.CaptionLiteCommentCopy = { createController };

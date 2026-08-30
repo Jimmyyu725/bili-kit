@@ -17,100 +17,148 @@ function deferred() {
 }
 
 {
-  let pageKey = "BV1:1";
+  const pageKey = "BV1:1";
   const request = deferred();
-  const requestedPageKeys = [];
   const states = [];
   const copied = [];
+  let callbacks;
+  let requests = 0;
   const controller = createController({
     getPageKey: () => pageKey,
-    requestComments: (requestedPageKey, { signal }) => {
-      requestedPageKeys.push(requestedPageKey);
-      assert.equal(signal.aborted, false);
+    loadComments: (_pageKey, options) => {
+      requests += 1;
+      callbacks = options;
       return request.promise;
     },
     copyText: async (text) => { copied.push(text); return true; },
     publishState: (state) => states.push(state)
   });
 
-  assert.equal(controller.updateProgress({ pageKey, count: 99 }), false);
-  const running = controller.start();
-  assert.equal(controller.updateProgress({ pageKey, count: 7 }), true);
-  request.resolve({ success: true, pageKey, count: 2, text: "comments" });
-  assert.equal(await running, true);
-  assert.deepEqual(requestedPageKeys, ["BV1:1"]);
-  assert.deepEqual(copied, ["comments"]);
-  assert.deepEqual(states.map(({ status, count }) => ({ status, count })), [
-    { status: "loading", count: 0 },
-    { status: "loading", count: 7 },
-    { status: "success", count: 2 }
-  ]);
+  const loading = controller.startLoading();
+  await Promise.resolve();
+  assert.equal(controller.startLoading(), loading);
+  callbacks.onSnapshot({ pageKey, count: 2, text: "first", complete: false, phase: "roots" });
+  assert.equal(await controller.copyCurrent(), true);
+  callbacks.onSnapshot({ pageKey, count: 4, text: "second", complete: false, phase: "replies" });
+  assert.equal(await controller.copyCurrent(), true);
+  assert.deepEqual(copied, ["first", "second"]);
+  assert.equal(requests, 1);
+  assert.equal(states.at(-1).status, "loading");
+  assert.match(states.at(-1).message, /仍在继续加载/);
 
-  pageKey = "";
-  controller.invalidate();
+  const finalSnapshot = {
+    pageKey,
+    count: 5,
+    text: "all",
+    complete: true,
+    phase: "complete"
+  };
+  callbacks.onSnapshot(finalSnapshot);
+  request.resolve(finalSnapshot);
+  assert.equal(await loading, true);
+  assert.equal(await controller.copyCurrent(), true);
+  assert.equal(await controller.copyCurrent(), true);
+  assert.deepEqual(copied, ["first", "second", "all", "all"]);
+  assert.equal(requests, 1);
+  assert.equal(states.at(-1).status, "complete");
+  assert.equal(states.at(-1).count, 5);
+}
+
+{
+  const request = deferred();
+  const states = [];
+  let callbacks;
+  let requests = 0;
+  const copyResults = [false, true];
+  const controller = createController({
+    getPageKey: () => "retry:1",
+    loadComments: (_pageKey, options) => {
+      requests += 1;
+      callbacks = options;
+      return request.promise;
+    },
+    copyText: async () => copyResults.shift(),
+    publishState: (state) => states.push(state)
+  });
+
+  const loading = controller.startLoading();
+  await Promise.resolve();
+  assert.equal(await controller.copyCurrent(), false);
+  assert.match(states.at(-1).message, /准备中/);
+  callbacks.onSnapshot({
+    pageKey: "retry:1",
+    count: 3,
+    text: "retry text",
+    complete: false,
+    phase: "roots"
+  });
+  callbacks.onRetry({ pageKey: "retry:1", count: 3, delay: 2000, reason: "cursor" });
+  assert.equal(states.at(-1).status, "retrying");
+  assert.equal(states.at(-1).canCopy, true);
+  assert.equal(await controller.copyCurrent(), false);
+  assert.equal(states.at(-1).canRetry, true);
+  assert.equal(await controller.copyCurrent(), true);
+  assert.equal(requests, 1);
+  request.resolve({
+    pageKey: "retry:1",
+    count: 3,
+    text: "retry text",
+    complete: true,
+    phase: "complete"
+  });
+  await loading;
 }
 
 {
   let pageKey = "A:1";
-  const request = deferred();
+  const requests = [];
   const copied = [];
-  let requestSignal;
   const controller = createController({
     getPageKey: () => pageKey,
-    requestComments: (_pageKey, { signal }) => {
-      requestSignal = signal;
+    loadComments: (requestedPageKey, options) => {
+      const request = deferred();
+      requests.push({ requestedPageKey, options, request });
       return request.promise;
     },
     copyText: async (text) => { copied.push(text); return true; },
     publishState: () => {}
   });
 
-  const oldJob = controller.start();
+  const oldLoading = controller.startLoading();
   await Promise.resolve();
   pageKey = "B:1";
   controller.invalidate();
-  assert.equal(requestSignal.aborted, true);
+  assert.equal(requests[0].options.signal.aborted, true);
   pageKey = "A:1";
-  request.resolve({ success: true, pageKey: "A:1", count: 1, text: "stale" });
-  assert.equal(await oldJob, false);
-  assert.deepEqual(copied, []);
-}
-
-{
-  let requests = 0;
-  const copyResults = [false, true];
-  const states = [];
-  const controller = createController({
-    getPageKey: () => "retry:1",
-    requestComments: async () => {
-      requests += 1;
-      return { success: true, pageKey: "retry:1", count: 3, text: "retry text" };
-    },
-    copyText: async () => copyResults.shift(),
-    publishState: (state) => states.push(state)
+  const newLoading = controller.startLoading();
+  await Promise.resolve();
+  assert.equal(requests.length, 2);
+  requests[0].options.onSnapshot({
+    pageKey: "A:1",
+    count: 1,
+    text: "stale",
+    complete: false,
+    phase: "roots"
   });
-
-  assert.equal(await controller.start(), false);
-  assert.equal(await controller.start(), true);
-  assert.equal(requests, 1);
-  assert.equal(states.at(-2).canRetry, true);
-  assert.equal(states.at(-1).status, "success");
-}
-
-{
-  const copied = [];
-  const states = [];
-  const controller = createController({
-    getPageKey: () => "error:1",
-    requestComments: async () => ({ success: false, error: "rate limited" }),
-    copyText: async (text) => { copied.push(text); return true; },
-    publishState: (state) => states.push(state)
+  requests[0].request.resolve({ cancelled: true, pageKey: "A:1" });
+  assert.equal(await oldLoading, false);
+  requests[1].options.onSnapshot({
+    pageKey: "A:1",
+    count: 1,
+    text: "fresh",
+    complete: true,
+    phase: "complete"
   });
-
-  assert.equal(await controller.start(), false);
-  assert.deepEqual(copied, []);
-  assert.equal(states.at(-1).status, "error");
-  assert.match(states.at(-1).message, /rate limited/);
+  requests[1].request.resolve({
+    pageKey: "A:1",
+    count: 1,
+    text: "fresh",
+    complete: true,
+    phase: "complete"
+  });
+  assert.equal(await newLoading, true);
+  assert.equal(await controller.copyCurrent(), true);
+  assert.deepEqual(copied, ["fresh"]);
 }
 
 console.log("Comment copy controller checks passed.");

@@ -132,9 +132,10 @@
     };
   }
 
-  function appendChildReplies(thread, replies) {
+  function appendChildReplies(thread, replies, maxReplies = Infinity) {
     const seen = new Set(thread.replies.map((reply) => reply.id));
     (replies || []).forEach((rawReply) => {
+      if (thread.replies.length >= maxReplies) return;
       const reply = normalizeReply(rawReply);
       if (!reply.id || seen.has(reply.id)) return;
       seen.add(reply.id);
@@ -143,13 +144,13 @@
     return thread;
   }
 
-  function normalizeRootReply(reply) {
+  function normalizeRootReply(reply, maxReplies = Infinity) {
     const thread = {
       ...normalizeReply(reply),
       replyCount: Math.max(0, Number(reply?.rcount) || 0),
       replies: []
     };
-    appendChildReplies(thread, reply?.replies);
+    appendChildReplies(thread, reply?.replies, maxReplies);
     thread.replyCount = Math.max(thread.replyCount, thread.replies.length);
     return thread;
   }

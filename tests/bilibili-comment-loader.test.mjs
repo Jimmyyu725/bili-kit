@@ -441,4 +441,109 @@ function createLoader() {
   assert.equal(result.cancelled, true);
 }
 
+{
+  let mainCalls = 0;
+  const snapshots = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "root-limit:1",
+    videoId: "BV1111111111",
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: 0, data: { wbi_img: wbiImage } });
+      }
+      if (url.pathname === "/x/v2/reply/wbi/main") {
+        mainCalls += 1;
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: false, pagination_reply: { next_offset: "must-not-request" } },
+            replies: Array.from({ length: 501 }, (_, index) => ({
+              rpid: index + 1,
+              member: { uname: `Root ${index + 1}` },
+              content: { message: "Comment" },
+              rcount: 0
+            }))
+          }
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+
+  assert.equal(mainCalls, 1);
+  assert.equal(result.count, 500, JSON.stringify(result));
+  assert.equal(result.complete, true);
+  assert.equal(result.limitReached, true);
+  assert.equal(result.phase, "limit");
+  assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
+}
+
+{
+  let mainCalls = 0;
+  const childRequests = [];
+  const snapshots = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "child-limit:1",
+    videoId: "BV1111111111",
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: 0, data: { wbi_img: wbiImage } });
+      }
+      if (url.pathname === "/x/v2/reply/wbi/main") {
+        mainCalls += 1;
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: true },
+            replies: Array.from({ length: 490 }, (_, index) => ({
+              rpid: index + 1,
+              member: { uname: `Root ${index + 1}` },
+              content: { message: "Comment" },
+              rcount: 1
+            }))
+          }
+        });
+      }
+      if (url.pathname === "/x/v2/reply/reply") {
+        childRequests.push({
+          root: url.searchParams.get("root"),
+          page: url.searchParams.get("pn")
+        });
+        return response({
+          code: 0,
+          data: {
+            page: { count: 40 },
+            replies: Array.from({ length: 20 }, (_, index) => ({
+              rpid: 10_000 + index,
+              member: { uname: `Child ${index + 1}` },
+              content: { message: "Reply" }
+            }))
+          }
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+
+  assert.equal(mainCalls, 1);
+  assert.deepEqual(childRequests, [{ root: "1", page: "1" }]);
+  assert.equal(result.count, 500, JSON.stringify(result));
+  assert.equal(result.complete, true);
+  assert.equal(result.limitReached, true);
+  assert.equal(result.phase, "limit");
+  assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
+}
+
 console.log("Bilibili comment loader checks passed.");

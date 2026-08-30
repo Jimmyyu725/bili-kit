@@ -8,6 +8,7 @@
     normalizeRootReply,
     signWbiParams
   } = globalThis.CaptionLiteBilibiliComments;
+  const MAX_COMMENT_COUNT = 500;
   const RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000];
   const TRANSIENT_API_CODES = new Set([-352, -412, -509]);
 
@@ -15,12 +16,17 @@
     return threads.reduce((total, thread) => total + 1 + thread.replies.length, 0);
   }
 
-  function createSnapshot(pageKey, threads, { complete = false, phase = "roots" } = {}) {
+  function createSnapshot(pageKey, threads, {
+    complete = false,
+    limitReached = false,
+    phase = "roots"
+  } = {}) {
     return {
       pageKey,
       count: commentCount(threads),
       text: formatCommentThreads(threads),
       complete,
+      limitReached,
       phase
     };
   }
@@ -138,7 +144,8 @@
     pageKey,
     signal,
     thread,
-    wait
+    wait,
+    getRemainingCount
   }) {
     const pageSize = 20;
     for (let pageNumber = 1; ; pageNumber += 1) {
@@ -155,8 +162,9 @@
         { getSnapshot, isCurrent, onRetry, pageKey, phase: "replies", signal, wait }
       );
       if (!isCurrent()) return false;
-      appendChildReplies(thread, response.data?.replies || []);
+      appendChildReplies(thread, response.data?.replies || [], getRemainingCount());
       onBatch();
+      if (getRemainingCount() === 0) return "limit";
       const total = Math.max(0, Number(response.data?.page?.count) || 0);
       if (pageNumber * pageSize >= total) return true;
     }
@@ -233,7 +241,9 @@
         ];
         firstPage = false;
         for (const rawReply of replies) {
-          const thread = normalizeRootReply(rawReply);
+          const remainingCount = MAX_COMMENT_COUNT - commentCount(threads);
+          if (remainingCount === 0) break;
+          const thread = normalizeRootReply(rawReply, remainingCount - 1);
           if (!thread.id || rootIds.has(thread.id)) continue;
           rootIds.add(thread.id);
           threads.push(thread);
@@ -242,6 +252,16 @@
         onProgress(snapshot.count);
         onSnapshot(snapshot);
         if (snapshot.count > countBeforePage) retryAttempt = 0;
+
+        if (snapshot.count === MAX_COMMENT_COUNT) {
+          const limitSnapshot = createSnapshot(pageKey, threads, {
+            complete: true,
+            limitReached: true,
+            phase: "limit"
+          });
+          onSnapshot(limitSnapshot);
+          return limitSnapshot;
+        }
 
         if (data.cursor?.is_end) break;
         const nextOffset = String(data.cursor?.pagination_reply?.next_offset ?? "");
@@ -274,8 +294,18 @@
           pageKey,
           signal,
           thread,
-          wait
+          wait,
+          getRemainingCount: () => MAX_COMMENT_COUNT - commentCount(threads)
         });
+        if (completed === "limit") {
+          const limitSnapshot = createSnapshot(pageKey, threads, {
+            complete: true,
+            limitReached: true,
+            phase: "limit"
+          });
+          onSnapshot(limitSnapshot);
+          return limitSnapshot;
+        }
         if (!completed) return cancelledResult(pageKey);
       }
 

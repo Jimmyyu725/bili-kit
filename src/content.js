@@ -23,7 +23,14 @@
   let lastPlaybackSentAt = 0;
   let latestState = null;
   let latestPlaybackMs = 0;
-  let latestCommentCopyState = { status: "idle", count: 0, message: "", canRetry: false };
+  let latestCommentCopyState = {
+    status: "idle",
+    count: 0,
+    message: "",
+    canCopy: false,
+    canRetry: false,
+    complete: false
+  };
   let embedRoot = null;
   let embeddedPanel = null;
   let observedPlayer = null;
@@ -61,7 +68,9 @@
       status: state?.status || "idle",
       count: Math.max(0, Number(state?.count) || 0),
       message: String(state?.message || ""),
-      canRetry: Boolean(state?.canRetry)
+      canCopy: Boolean(state?.canCopy),
+      canRetry: Boolean(state?.canRetry),
+      complete: Boolean(state?.complete)
     };
     embeddedPanel?.setCommentCopyState(latestCommentCopyState);
     return sendRuntimeMessage({
@@ -109,21 +118,19 @@
 
   const commentCopyController = globalThis.CaptionLiteCommentCopy.createController({
     getPageKey: () => getBilibiliIdentity()?.pageKey || "",
-    requestComments: async (pageKey, { signal }) => {
+    loadComments: (pageKey, { signal, onSnapshot, onRetry }) => {
       const identity = getBilibiliIdentity();
       if (!identity || identity.pageKey !== pageKey) {
-        return { success: false, error: "当前 Bilibili 视频已变化" };
+        return Promise.resolve({ pageKey, error: "当前 Bilibili 视频已变化" });
       }
-      const result = await globalThis.CaptionLiteBilibiliCommentLoader.loadAllComments({
+      return globalThis.CaptionLiteBilibiliCommentLoader.loadAllComments({
         pageKey,
         videoId: identity.videoId,
         signal,
         isCurrent: () => !signal.aborted && getBilibiliIdentity()?.pageKey === pageKey,
-        onProgress: (count) => commentCopyController.updateProgress({ pageKey, count })
+        onSnapshot,
+        onRetry
       });
-      return result?.error
-        ? { success: false, error: result.error }
-        : { success: true, ...result };
     },
     copyText: copyCommentText,
     publishState: publishCommentCopyState
@@ -161,6 +168,12 @@
     clearTimeout(bilibiliRetryTimer);
     bilibiliRetryTimer = null;
     currentBilibiliPageKey = identity.pageKey;
+    commentCopyController.startLoading().catch((error) => {
+      publishCommentCopyState({
+        status: "error",
+        message: `评论读取失败：${error instanceof Error ? error.message : "未知错误"}`
+      }).catch(() => {});
+    });
 
     publishState({
       source: "bilibili",
@@ -616,7 +629,7 @@
     }
 
     if (message?.type === "COPY_BILIBILI_COMMENTS") {
-      commentCopyController.start().catch((error) => {
+      commentCopyController.copyCurrent().catch((error) => {
         publishCommentCopyState({
           status: "error",
           message: `评论读取失败：${error instanceof Error ? error.message : "未知错误"}`

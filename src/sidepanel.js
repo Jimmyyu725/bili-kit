@@ -42,7 +42,14 @@
   let autoScrollActive = true;
   let autoScrollResumeTimer = null;
   let collapsed = false;
-  let commentCopyState = { status: "idle", count: 0, message: "", canRetry: false };
+  let commentCopyState = {
+    status: "idle",
+    count: 0,
+    message: "",
+    canCopy: false,
+    canRetry: false,
+    complete: false
+  };
 
   function sendMessage(message) {
     return chrome.runtime.sendMessage(message).catch(() => null);
@@ -57,13 +64,12 @@
     const visible = currentState?.source === "bilibili";
     elements.copyCommentsButton.hidden = !visible;
     if (!visible) return;
-    const loading = commentCopyState.status === "loading";
-    elements.copyCommentsButton.disabled = loading || activeTabId == null;
-    elements.copyCommentsButton.textContent = loading
-      ? `读取评论 ${commentCopyState.count || 0} 条`
-      : commentCopyState.canRetry
-        ? "再次复制"
-        : "复制全部评论";
+    elements.copyCommentsButton.disabled = activeTabId == null || !commentCopyState.canCopy;
+    elements.copyCommentsButton.textContent = commentCopyState.complete
+      ? `复制全部 ${commentCopyState.count} 条`
+      : commentCopyState.count > 0
+        ? `复制当前 ${commentCopyState.count} 条`
+        : "正在加载评论…";
     if (commentCopyState.message) elements.status.textContent = commentCopyState.message;
   }
 
@@ -72,7 +78,9 @@
       status: state.status || "idle",
       count: Math.max(0, Number(state.count) || 0),
       message: String(state.message || ""),
-      canRetry: Boolean(state.canRetry)
+      canCopy: Boolean(state.canCopy),
+      canRetry: Boolean(state.canRetry),
+      complete: Boolean(state.complete)
     };
     renderCommentCopyButton();
   }
@@ -249,7 +257,7 @@
     const response = await sendMessage({ type: "GET_ACTIVE_STATE" });
     activeTabId = response?.tabId ?? null;
     commentCopyState = response?.commentCopyState
-      || { status: "idle", count: 0, message: "", canRetry: false };
+      || { status: "idle", count: 0, message: "", canCopy: false, canRetry: false, complete: false };
     if (!embedded || response?.state) {
       currentState = response?.state ?? null;
       renderState();
@@ -313,7 +321,6 @@
   });
   elements.copyCommentsButton.addEventListener("click", async () => {
     if (activeTabId == null) return;
-    setCommentCopyState({ status: "loading", count: 0, message: "正在读取评论……" });
     const response = await sendMessage({
       type: "COPY_BILIBILI_COMMENTS",
       tabId: activeTabId
@@ -342,7 +349,7 @@
       currentState = message.state;
       currentTrackId = "";
       commentCopyState = message.commentCopyState
-        || { status: "idle", count: 0, message: "", canRetry: false };
+        || { status: "idle", count: 0, message: "", canCopy: false, canRetry: false, complete: false };
       renderState();
     }
     if (message?.type === "COMMENTS_COPY_STATE" && message.tabId === activeTabId) {

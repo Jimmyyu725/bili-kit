@@ -116,12 +116,12 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (!changeInfo.url) return;
-  chrome.tabs.sendMessage(tabId, { type: "BILIBILI_NAVIGATION" }).catch(() => {});
   await chrome.storage.session.remove([stateKey(tabId), commentStateKey(tabId)]);
   const activeTab = await getActiveTab();
   if (activeTab?.id === tabId) {
     await broadcast({ type: "ACTIVE_TAB_STATE", tabId, state: null, commentCopyState: null });
   }
+  await chrome.tabs.sendMessage(tabId, { type: "BILIBILI_NAVIGATION" }).catch(() => {});
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {

@@ -257,6 +257,46 @@ function createLoader() {
 }
 
 {
+  const waits = [];
+  let navCalls = 0;
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "invalid-wbi:1",
+    videoId: "BV1111111111",
+    wait: async (milliseconds) => { waits.push(milliseconds); return false; },
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        navCalls += 1;
+        return response({ code: 0, data: { wbi_img: {} } });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+
+  assert.equal(navCalls, 1);
+  assert.deepEqual(waits, []);
+  assert.match(result.error, /WBI 签名密钥/);
+}
+
+{
+  const waits = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "permission:1",
+    videoId: "BV1111111111",
+    wait: async (milliseconds) => { waits.push(milliseconds); return false; },
+    fetchImpl: async () => response({ code: -101, message: "账号未登录" })
+  });
+
+  assert.deepEqual(waits, []);
+  assert.match(result.error, /账号未登录/);
+}
+
+{
   let mainCalls = 0;
   const waits = [];
   const loader = createLoader();
@@ -317,6 +357,88 @@ function createLoader() {
   assert.deepEqual(waits, [2000, 4000, 8000, 15000, 30000, 30000, 2000]);
   assert.equal(result.complete, true, JSON.stringify(result));
   assert.equal(result.count, 2);
+}
+
+{
+  const offsets = [];
+  const waits = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "repeated-cursor:1",
+    videoId: "BV1111111111",
+    wait: async (milliseconds) => { waits.push(milliseconds); return true; },
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: 0, data: { wbi_img: wbiImage } });
+      }
+      const offset = JSON.parse(url.searchParams.get("pagination_str")).offset;
+      offsets.push(offset);
+      if (!offset) {
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: false, pagination_reply: { next_offset: "next" } },
+            replies: [
+              { rpid: 1, member: { uname: "First" }, content: { message: "One" }, rcount: 0 }
+            ]
+          }
+        });
+      }
+      if (offsets.length === 2) {
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: false, pagination_reply: { next_offset: "next" } },
+            replies: [
+              { rpid: 2, member: { uname: "Second" }, content: { message: "Two" }, rcount: 0 }
+            ]
+          }
+        });
+      }
+      return response({ code: 0, data: { cursor: { is_end: true }, replies: [] } });
+    }
+  });
+
+  assert.deepEqual(offsets, ["", "next", "next"]);
+  assert.deepEqual(waits, [2000]);
+  assert.equal(result.complete, true);
+  assert.equal(result.count, 2);
+}
+
+{
+  const abortController = new AbortController();
+  const waits = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "cancel-wait:1",
+    videoId: "BV1111111111",
+    signal: abortController.signal,
+    wait: async (milliseconds) => {
+      waits.push(milliseconds);
+      abortController.abort();
+      return false;
+    },
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: 0, data: { wbi_img: wbiImage } });
+      }
+      return response({
+        code: 0,
+        data: { cursor: { is_end: false, pagination_reply: {} }, replies: [] }
+      });
+    }
+  });
+
+  assert.deepEqual(waits, [2000]);
+  assert.equal(result.cancelled, true);
 }
 
 console.log("Bilibili comment loader checks passed.");

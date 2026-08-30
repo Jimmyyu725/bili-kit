@@ -143,26 +143,36 @@
         return false;
       }
 
+      const copiedSnapshot = latestSnapshot;
+
       let copied = false;
       try {
-        copied = await copyText(latestSnapshot.text);
+        copied = await copyText(copiedSnapshot.text);
       } catch {
         copied = false;
       }
-      const loading = Boolean(activeJob) && !latestSnapshot.complete;
-      const status = latestSnapshot.complete
+
+      if (String(getPageKey() || "") !== pageKey || latestSnapshot?.pageKey !== pageKey) {
+        return copied;
+      }
+
+      const currentSnapshot = latestSnapshot;
+      const loading = Boolean(activeJob) && !currentSnapshot.complete;
+      const status = currentSnapshot.complete
         ? "complete"
         : latestStatus === "retrying" ? "retrying" : loading ? "loading" : "error";
       await emit({
         status,
-        count: latestSnapshot.count,
-        complete: latestSnapshot.complete,
+        count: currentSnapshot.count,
+        complete: currentSnapshot.complete,
         canCopy: true,
         canRetry: !copied,
         message: copied
-          ? latestSnapshot.complete
-            ? `已复制全部 ${latestSnapshot.count} 条评论。`
-            : `已复制 ${latestSnapshot.count} 条，仍在继续加载……`
+          ? currentSnapshot.complete && copiedSnapshot.count === currentSnapshot.count
+            ? `已复制全部 ${copiedSnapshot.count} 条评论。`
+            : currentSnapshot.complete
+              ? `已复制 ${copiedSnapshot.count} 条；全部 ${currentSnapshot.count} 条已加载，可再次复制全部。`
+              : `已复制 ${copiedSnapshot.count} 条，仍在继续加载……`
           : "复制失败，请再次点击复制。"
       });
       return copied;
@@ -175,7 +185,12 @@
       emit({ status: "idle" });
     }
 
-    return { copyCurrent, invalidate, startLoading };
+    function restartLoading() {
+      invalidate();
+      return startLoading();
+    }
+
+    return { copyCurrent, invalidate, restartLoading, startLoading };
   }
 
   globalThis.CaptionLiteCommentCopy = { createController };

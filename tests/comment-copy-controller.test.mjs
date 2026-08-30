@@ -161,4 +161,90 @@ function deferred() {
   assert.deepEqual(copied, ["fresh"]);
 }
 
+{
+  let pageKey = "A:1";
+  const requests = [];
+  const copied = [];
+  const controller = createController({
+    getPageKey: () => pageKey,
+    loadComments: (requestedPageKey, options) => {
+      const request = deferred();
+      requests.push({ requestedPageKey, options, request });
+      return request.promise;
+    },
+    copyText: async (text) => { copied.push(text); return true; },
+    publishState: () => {}
+  });
+
+  const oldLoading = controller.startLoading();
+  await Promise.resolve();
+  pageKey = "B:1";
+  pageKey = "A:1";
+  const restartedLoading = controller.restartLoading();
+  await Promise.resolve();
+  assert.equal(requests[0].options.signal.aborted, true);
+  assert.equal(requests.length, 2);
+  requests[0].options.onSnapshot({
+    pageKey: "A:1",
+    count: 1,
+    text: "old-A",
+    complete: true,
+    phase: "complete"
+  });
+  requests[0].request.resolve({ cancelled: true, pageKey: "A:1" });
+  assert.equal(await oldLoading, false);
+  requests[1].options.onSnapshot({
+    pageKey: "A:1",
+    count: 1,
+    text: "new-A",
+    complete: true,
+    phase: "complete"
+  });
+  requests[1].request.resolve({
+    pageKey: "A:1",
+    count: 1,
+    text: "new-A",
+    complete: true,
+    phase: "complete"
+  });
+  assert.equal(await restartedLoading, true);
+  assert.equal(await controller.copyCurrent(), true);
+  assert.deepEqual(copied, ["new-A"]);
+}
+
+{
+  const pageKey = "growing:1";
+  const loadingRequest = deferred();
+  const copyRequest = deferred();
+  const states = [];
+  const copied = [];
+  let callbacks;
+  const controller = createController({
+    getPageKey: () => pageKey,
+    loadComments: (_pageKey, options) => {
+      callbacks = options;
+      return loadingRequest.promise;
+    },
+    copyText: async (text) => {
+      copied.push(text);
+      return copyRequest.promise;
+    },
+    publishState: (state) => states.push(state)
+  });
+
+  const loading = controller.startLoading();
+  await Promise.resolve();
+  callbacks.onSnapshot({ pageKey, count: 1, text: "first", complete: false, phase: "roots" });
+  const copying = controller.copyCurrent();
+  callbacks.onSnapshot({ pageKey, count: 2, text: "second", complete: false, phase: "roots" });
+  copyRequest.resolve(true);
+  assert.equal(await copying, true);
+  assert.deepEqual(copied, ["first"]);
+  assert.equal(states.at(-1).count, 2);
+  assert.match(states.at(-1).message, /已复制 1 条/);
+
+  loadingRequest.resolve({ pageKey, count: 2, text: "second", complete: true, phase: "complete" });
+  await loading;
+}
+
 console.log("Comment copy controller checks passed.");

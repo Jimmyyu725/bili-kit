@@ -158,6 +158,10 @@
     const identity = getBilibiliIdentity();
     if (!identity) {
       resetBilibiliRetry();
+      if (currentBilibiliPageKey) {
+        currentBilibiliPageKey = "";
+        commentCopyController.invalidate();
+      }
       return;
     }
     if (!force && identity.pageKey === currentBilibiliPageKey) return;
@@ -605,7 +609,20 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "BILIBILI_NAVIGATION") {
-      commentCopyController.invalidate();
+      if (location.hostname.endsWith("bilibili.com")) {
+        if (getBilibiliIdentity()) {
+          commentCopyController.restartLoading().catch((error) => {
+            publishCommentCopyState({
+              status: "error",
+              message: `评论读取失败：${error instanceof Error ? error.message : "未知错误"}`
+            }).catch(() => {});
+          });
+        } else {
+          currentBilibiliPageKey = "";
+          commentCopyController.invalidate();
+        }
+        publishCommentCopyState(latestCommentCopyState).catch(() => {});
+      }
       sendResponse({ success: true });
       return;
     }

@@ -74,6 +74,16 @@ assert.match(contentSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/)
 assert.match(contentSource, /loadComments: \(pageKey, \{ signal, onSnapshot, onRetry \}\)/);
 assert.match(contentSource, /commentCopyController\.startLoading\(\)/);
 assert.match(contentSource, /BILIBILI_NAVIGATION/);
+const bilibiliNavigationHandler = contentSource.slice(
+  contentSource.indexOf('message?.type === "BILIBILI_NAVIGATION"'),
+  contentSource.indexOf('message?.type === "SEEK"')
+);
+assert.match(bilibiliNavigationHandler, /commentCopyController\.restartLoading\(\)/);
+assert.match(bilibiliNavigationHandler, /sendResponse\(\{ success: true \}\)/);
+assert.match(
+  contentSource,
+  /if \(!identity\) \{[\s\S]{0,180}currentBilibiliPageKey = "";[\s\S]{0,180}commentCopyController\.invalidate\(\)/
+);
 assert.doesNotMatch(contentSource, /FETCH_BILIBILI_COMMENTS/);
 assert.doesNotMatch(contentSource, /BILIBILI_COMMENTS_RESULT/);
 assert.match(
@@ -132,6 +142,20 @@ assert.match(serviceWorkerSource, /COMMENTS_COPY_STATE/);
 assert.match(serviceWorkerSource, /chrome\.webNavigation\.onHistoryStateUpdated/);
 assert.match(serviceWorkerSource, /chrome\.webNavigation\.onCommitted/);
 assert.match(serviceWorkerSource, /BILIBILI_NAVIGATION/);
+const tabUpdatedHandler = serviceWorkerSource.slice(
+  serviceWorkerSource.indexOf("chrome.tabs.onUpdated.addListener"),
+  serviceWorkerSource.indexOf("chrome.tabs.onRemoved.addListener")
+);
+assert.ok(
+  tabUpdatedHandler.indexOf("chrome.storage.session.remove")
+    < tabUpdatedHandler.indexOf("chrome.tabs.sendMessage"),
+  "tab URL updates must clear stale state before asking the content script to republish"
+);
+assert.ok(
+  tabUpdatedHandler.indexOf("ACTIVE_TAB_STATE")
+    < tabUpdatedHandler.indexOf("chrome.tabs.sendMessage"),
+  "the final navigation notification must not be overwritten by a stale null broadcast"
+);
 assert.doesNotMatch(serviceWorkerSource, /FETCH_BILIBILI_COMMENTS/);
 assert.doesNotMatch(serviceWorkerSource, /CaptionLiteBilibiliCommentLoader/);
 assert.doesNotMatch(serviceWorkerSource, /CaptionLiteCommentJobs/);

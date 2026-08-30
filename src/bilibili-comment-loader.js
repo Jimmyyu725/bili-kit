@@ -9,6 +9,7 @@
     signWbiParams
   } = globalThis.CaptionLiteBilibiliComments;
   const RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000];
+  const TRANSIENT_API_CODES = new Set([-352, -412, -509]);
 
   function commentCount(threads) {
     return threads.reduce((total, thread) => total + 1 + thread.replies.length, 0);
@@ -31,11 +32,18 @@
   async function defaultWait(milliseconds, signal) {
     if (signal?.aborted) return false;
     return new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(true), milliseconds);
-      signal?.addEventListener("abort", () => {
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        resolve(false);
-      }, { once: true });
+        signal?.removeEventListener("abort", onAbort);
+        resolve(value);
+      };
+      const onAbort = () => finish(false);
+      const timer = setTimeout(() => finish(true), milliseconds);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
     });
   }
 
@@ -56,7 +64,7 @@
     const data = await response.json();
     if (Number(data?.code) !== 0) {
       const error = new Error(data?.message || data?.msg || `Bilibili 错误 ${data?.code}`);
-      error.retryable = ![-400, -404].includes(Number(data?.code));
+      error.retryable = TRANSIENT_API_CODES.has(Number(data?.code));
       throw error;
     }
     return data;
@@ -77,7 +85,12 @@
       throw error;
     }
     const { data } = await response.json();
-    return extractWbiKeys(data?.wbi_img);
+    try {
+      return extractWbiKeys(data?.wbi_img);
+    } catch (error) {
+      error.retryable = false;
+      throw error;
+    }
   }
 
   function cancelledResult(pageKey) {
@@ -97,7 +110,9 @@
       try {
         return await operation();
       } catch (error) {
-        if (error?.retryable === false) throw error;
+        if (!isCurrent() || signal?.aborted) throw error;
+        const retryable = error?.retryable === true || error?.name === "TypeError";
+        if (!retryable) throw error;
         const delay = retryDelay(attempt);
         attempt += 1;
         onRetry({

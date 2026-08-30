@@ -546,4 +546,76 @@ function createLoader() {
   assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
 }
 
+{
+  const childRequests = [];
+  const snapshots = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "embedded-child-limit:1",
+    videoId: "BV1111111111",
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: 0, data: { wbi_img: wbiImage } });
+      }
+      if (url.pathname === "/x/v2/reply/wbi/main") {
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: true },
+            replies: [
+              {
+                rpid: 1,
+                member: { uname: "Target root" },
+                content: { message: "Comment" },
+                rcount: 20,
+                replies: Array.from({ length: 5 }, (_, index) => ({
+                  rpid: 1_000 + index,
+                  member: { uname: `Embedded ${index + 1}` },
+                  content: { message: "Reply" }
+                }))
+              },
+              ...Array.from({ length: 489 }, (_, index) => ({
+                rpid: index + 2,
+                member: { uname: `Root ${index + 2}` },
+                content: { message: "Comment" },
+                rcount: 1
+              }))
+            ]
+          }
+        });
+      }
+      if (url.pathname === "/x/v2/reply/reply") {
+        childRequests.push({
+          root: url.searchParams.get("root"),
+          page: url.searchParams.get("pn")
+        });
+        return response({
+          code: 0,
+          data: {
+            page: { count: 40 },
+            replies: Array.from({ length: 20 }, (_, index) => ({
+              rpid: 2_000 + index,
+              member: { uname: `Child ${index + 1}` },
+              content: { message: "Reply" }
+            }))
+          }
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }
+  });
+
+  assert.deepEqual(childRequests, [{ root: "1", page: "1" }]);
+  assert.equal(result.count, 500, JSON.stringify(result));
+  assert.equal(result.complete, true);
+  assert.equal(result.limitReached, true);
+  assert.equal(result.phase, "limit");
+  assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
+}
+
 console.log("Bilibili comment loader checks passed.");

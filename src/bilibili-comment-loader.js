@@ -162,7 +162,11 @@
         { getSnapshot, isCurrent, onRetry, pageKey, phase: "replies", signal, wait }
       );
       if (!isCurrent()) return false;
-      appendChildReplies(thread, response.data?.replies || [], getRemainingCount());
+      appendChildReplies(
+        thread,
+        response.data?.replies || [],
+        thread.replies.length + getRemainingCount()
+      );
       onBatch();
       if (getRemainingCount() === 0) return "limit";
       const total = Math.max(0, Number(response.data?.page?.count) || 0);

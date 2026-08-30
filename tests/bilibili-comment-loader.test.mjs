@@ -36,12 +36,14 @@ function createLoader() {
 {
   const childRoots = [];
   const progress = [];
+  const snapshots = [];
   const rootOffsets = [];
   const loader = createLoader();
   const result = await loader.loadAllComments({
     pageKey: "BV1111111111:1",
     videoId: "BV1111111111",
     onProgress: (count) => progress.push(count),
+    onSnapshot: (snapshot) => snapshots.push(snapshot),
     fetchImpl: async (input) => {
       const url = new URL(String(input));
       if (url.pathname === "/x/web-interface/view") {
@@ -114,6 +116,13 @@ function createLoader() {
   assert.deepEqual(rootOffsets, ["", "next-page"]);
   assert.deepEqual(childRoots, ["20"]);
   assert.deepEqual(progress, [0, 2, 4, 5]);
+  assert.deepEqual(snapshots.map(({ count, complete, phase }) => ({ count, complete, phase })), [
+    { count: 2, complete: false, phase: "roots" },
+    { count: 4, complete: false, phase: "roots" },
+    { count: 5, complete: false, phase: "replies" },
+    { count: 5, complete: true, phase: "complete" }
+  ]);
+  assert.equal(result.complete, true);
   assert.match(result.text, /\[Complete\] Already complete/);
   assert.match(result.text, /↳ \[Second\] Two/);
 }
@@ -137,6 +146,177 @@ function createLoader() {
 
   assert.equal(result.cancelled, true);
   assert.match(result.error, /取消/);
+}
+
+{
+  let mainCalls = 0;
+  const waits = [];
+  const retryStates = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "stall:1",
+    videoId: "BV1111111111",
+    wait: async (milliseconds) => { waits.push(milliseconds); return true; },
+    onRetry: (state) => retryStates.push(state),
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: -101, data: { wbi_img: wbiImage } });
+      }
+      if (url.pathname !== "/x/v2/reply/wbi/main") {
+        throw new Error(`Unexpected URL: ${url}`);
+      }
+      mainCalls += 1;
+      if (mainCalls === 1) {
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: false, pagination_reply: {} },
+            replies: [
+              { rpid: 1, member: { uname: "First" }, content: { message: "One" }, rcount: 0 }
+            ]
+          }
+        });
+      }
+      if (mainCalls === 2) {
+        return response({
+          code: 0,
+          data: {
+            cursor: {
+              is_end: false,
+              pagination_reply: { next_offset: "next-page" }
+            },
+            replies: [
+              { rpid: 1, member: { uname: "First" }, content: { message: "One" }, rcount: 0 }
+            ]
+          }
+        });
+      }
+      return response({
+        code: 0,
+        data: {
+          cursor: { is_end: true },
+          replies: [
+            { rpid: 2, member: { uname: "Second" }, content: { message: "Two" }, rcount: 0 }
+          ]
+        }
+      });
+    }
+  });
+
+  assert.deepEqual(waits, [2000]);
+  assert.equal(retryStates[0].count, 1);
+  assert.equal(result.complete, true, JSON.stringify(result));
+  assert.equal(result.count, 2);
+}
+
+{
+  let mainCalls = 0;
+  const waits = [];
+  const retryStates = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "rate-limit:1",
+    videoId: "BV1111111111",
+    wait: async (milliseconds) => { waits.push(milliseconds); return true; },
+    onRetry: (state) => retryStates.push(state),
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: -101, data: { wbi_img: wbiImage } });
+      }
+      if (url.pathname !== "/x/v2/reply/wbi/main") {
+        throw new Error(`Unexpected URL: ${url}`);
+      }
+      mainCalls += 1;
+      if (mainCalls === 1) {
+        return { ok: false, status: 429, async json() { return {}; } };
+      }
+      return response({
+        code: 0,
+        data: {
+          cursor: { is_end: true },
+          replies: [
+            { rpid: 1, member: { uname: "Recovered" }, content: { message: "Done" }, rcount: 0 }
+          ]
+        }
+      });
+    }
+  });
+
+  assert.deepEqual(waits, [2000]);
+  assert.equal(retryStates[0].reason, "request");
+  assert.equal(result.complete, true, JSON.stringify(result));
+  assert.equal(result.count, 1);
+}
+
+{
+  let mainCalls = 0;
+  const waits = [];
+  const loader = createLoader();
+  const result = await loader.loadAllComments({
+    pageKey: "backoff:1",
+    videoId: "BV1111111111",
+    wait: async (milliseconds) => { waits.push(milliseconds); return true; },
+    fetchImpl: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/x/web-interface/view") {
+        return response({ code: 0, data: { aid: 123 } });
+      }
+      if (url.pathname === "/x/web-interface/nav") {
+        return response({ code: -101, data: { wbi_img: wbiImage } });
+      }
+      if (url.pathname !== "/x/v2/reply/wbi/main") {
+        throw new Error(`Unexpected URL: ${url}`);
+      }
+      mainCalls += 1;
+      if (mainCalls <= 6) {
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: false, pagination_reply: {} },
+            replies: [
+              { rpid: 1, member: { uname: "First" }, content: { message: "One" }, rcount: 0 }
+            ]
+          }
+        });
+      }
+      if (mainCalls === 7) {
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: false, pagination_reply: { next_offset: "after-stall" } },
+            replies: []
+          }
+        });
+      }
+      if (mainCalls === 8) {
+        return response({
+          code: 0,
+          data: {
+            cursor: { is_end: false, pagination_reply: {} },
+            replies: [
+              { rpid: 2, member: { uname: "Second" }, content: { message: "Two" }, rcount: 0 }
+            ]
+          }
+        });
+      }
+      return response({
+        code: 0,
+        data: { cursor: { is_end: true }, replies: [] }
+      });
+    }
+  });
+
+  assert.deepEqual(waits, [2000, 4000, 8000, 15000, 30000, 30000, 2000]);
+  assert.equal(result.complete, true, JSON.stringify(result));
+  assert.equal(result.count, 2);
 }
 
 console.log("Bilibili comment loader checks passed.");

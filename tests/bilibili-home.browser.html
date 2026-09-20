@@ -1,6 +1,6 @@
 <!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Caption Lite 首页回归测试</title>
 <link rel="stylesheet" href="../src/bilibili-home.css">
-<style>body{font:16px system-ui;padding:24px;background:#f7f7f8}.container{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.feed-card,.floor-single-card,.recommended-swipe{padding:24px;border:1px solid #aaa}.recommended-swipe{grid-column:span 2}pre{white-space:pre-wrap}</style>
+<style>body{font:16px system-ui;padding:24px;background:#f7f7f8}.container{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.feed-card,.floor-single-card,.recommended-swipe{padding:24px;border:1px solid #aaa}.recommended-swipe{grid-column:span 2}.recommended-container_floor-aside{position:relative;margin-right:56px}.feed-roll-btn{position:absolute;right:-48px;top:0;width:40px}.roll-btn{width:40px;height:94px;writing-mode:vertical-rl;border:1px solid #ccc;border-radius:6px;background:#fff}pre{white-space:pre-wrap}</style>
 <h1>首页工具浏览器回归测试</h1><pre id="test-result">Running…</pre>
 <div class="recommended-container_floor-aside"><div class="container"><div class="recommended-swipe">轮播推广</div></div><div class="feed-roll-btn"><button class="roll-btn">换一换</button></div></div>
 <script src="../src/bilibili-home.js"></script><script>
@@ -23,43 +23,47 @@
   const roll=document.querySelector('.roll-btn');
   roll.addEventListener('click',()=>{if(!fail)setTimeout(()=>nativeBatch(++batch),25);});
   nativeBatch(1);
-  let settings={};
-  const storage={get:async()=>settings,set:async(v)=>{settings=v;}};
-  const controller=CaptionLiteHome.mount(document,storage);
-  const label=(s)=>[...document.querySelectorAll('#caption-lite-home-tools label')].find(e=>e.textContent===s).querySelector('input');
-  const button=(s)=>[...document.querySelectorAll('#caption-lite-home-tools button')].find(e=>e.textContent===s);
+  const controller=CaptionLiteHome.mount(document);
+  if(new URLSearchParams(location.search).has('preview')) {out.textContent='← 上一批 · → 下一批';return;}
+  const button=(s)=>document.querySelector(`#caption-lite-home-nav button[aria-label="${s}"]`);
   try {
     out.textContent='Browser integration';await wait();
     check(getComputedStyle(document.querySelector('.recommended-swipe')).display==='none','carousel hidden');
     check(getComputedStyle(rows()[2]).display==='none' && getComputedStyle(rows()[0]).display!=='none','ad hidden; organic retained');
-    label('隐藏广告').click();await wait(100);
-    check(getComputedStyle(rows()[2]).display!=='none' && settings.bilibiliHome.hideAds===false,'ad toggle restored and saved');
-    label('隐藏广告').click();
-    label('隐藏轮播推广').click();await wait(100);
-    check(getComputedStyle(document.querySelector('.recommended-swipe')).display!=='none','carousel toggle restored');
-    label('隐藏轮播推广').click();
+    const nav=document.querySelector('#caption-lite-home-nav');
+    check(roll.nextElementSibling===nav && nav.parentElement.classList.contains('feed-roll-btn'),'arrows directly below native refresh');
+    check(!document.querySelector('#caption-lite-home-tools') && !nav.querySelector('input'),'top toolbar and switches removed');
+    check(nav.querySelectorAll('button').length===2 && nav.querySelector('button').textContent==='←','exactly two arrow buttons');
+    check(button('上一批推荐').disabled && button('下一批推荐').disabled,'both arrows disabled without history');
+    const bounds=nav.getBoundingClientRect(), refreshBounds=roll.getBoundingClientRect();
+    check(bounds.top >= refreshBounds.bottom && Math.abs(bounds.width-refreshBounds.width)<1,'arrows fit native 40px rail');
     roll.click();roll.click();await wait();
     check(batch===2,'rapid refresh serialized');
-    check(!button('撤回换一换').disabled,'undo enabled after completed refresh');
-    button('撤回换一换').click();await wait(100);
+    check(!button('上一批推荐').disabled,'undo enabled after completed refresh');
+    button('上一批推荐').click();await wait(100);
     check(document.querySelector('#caption-lite-home-history').textContent.includes('Batch 1'),'undo restores previous recommendations');
     check(document.querySelectorAll('#caption-lite-home-history .cl-home-card').length===2,'history excludes ads');
     check(document.querySelector('#caption-lite-home-history a').href==='https://www.bilibili.com/video/BV10','restored card keeps working link');
-    button('回到最新').click();await wait(100);
+    button('下一批推荐').click();await wait(100);
     check(!document.querySelector('#caption-lite-home-history') && getComputedStyle(rows()[0]).display!=='none','latest restores native cards');
-    roll.click();await wait();button('撤回换一换').click();button('撤回换一换').click();await wait(100);
+    roll.click();await wait();button('上一批推荐').click();button('上一批推荐').click();await wait(100);
     check(document.querySelector('#caption-lite-home-history').textContent.includes('Batch 1'),'multiple undo');
-    roll.click();await wait();button('撤回换一换').click();await wait(100);
-    check(document.querySelector('#caption-lite-home-history').textContent.includes('Batch 1') && button('撤回换一换').disabled,'refresh from history branches without duplicate snapshot');
-    button('回到最新').click();
+    button('下一批推荐').click();await wait(100);
+    check(document.querySelector('#caption-lite-home-history').textContent.includes('Batch 2'),'right arrow advances one batch, not directly to latest');
+    button('下一批推荐').click();await wait(100);
+    check(!document.querySelector('#caption-lite-home-history') && button('下一批推荐').disabled,'right arrow reaches live batch and disables');
+    button('上一批推荐').click();button('上一批推荐').click();
+    roll.click();await wait();button('上一批推荐').click();await wait(100);
+    check(document.querySelector('#caption-lite-home-history').textContent.includes('Batch 1') && button('上一批推荐').disabled,'refresh from history branches without duplicate snapshot');
+    button('下一批推荐').click();
     fail=true;roll.click();await wait(8300);
-    check(!button('撤回换一换').disabled && document.querySelector('.cl-home-status').textContent.includes('暂未收到'),'failed refresh recovers controls');
+    check(!button('上一批推荐').disabled && document.querySelector('.cl-home-status').textContent.includes('暂未收到'),'failed refresh recovers controls');
     const ad=rows()[2];ad.querySelector('a').href='https://www.bilibili.com/video/BVreused';await wait();
     check(!ad.hasAttribute('data-caption-lite-ad') && getComputedStyle(ad).display!=='none','reused ad node becomes visible organic card');
     controller.dispose();await wait(100);
-    check(!document.querySelector('#caption-lite-home-tools') && getComputedStyle(document.querySelector('.recommended-swipe')).display!=='none','dispose restores native display');
+    check(!document.querySelector('#caption-lite-home-nav') && getComputedStyle(document.querySelector('.recommended-swipe')).display!=='none','dispose restores native display');
     check(!document.documentElement.classList.contains('cl-home-hide-ads'),'dispose removes page flags');
-    out.textContent+='\nALL 16 CHECKS PASSED';
+    out.textContent+='\nALL '+(out.textContent.match(/\nPASS /g)||[]).length+' CHECKS PASSED';
   } catch(e) {out.textContent+='\nFAIL '+e.message;throw e;}
 })();
 </script></html>

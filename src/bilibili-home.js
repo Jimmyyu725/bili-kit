@@ -3,8 +3,7 @@
 
   const GRID = ".recommended-container_floor-aside > .container";
   const CARDS = ":scope > .feed-card, :scope > .floor-single-card, :scope > .bili-feed-card, :scope > .bili-video-card";
-  const OWN = "#caption-lite-home-tools, #caption-lite-home-history";
-  const DEFAULTS = { hideAds: true, hidePromotions: true };
+  const OWN = "#caption-lite-home-nav, #caption-lite-home-history";
 
   function safeUrl(value, image = false) {
     if (typeof value !== "string" || !value.trim()) return "";
@@ -66,6 +65,10 @@
         if (cursor === entries.length - 1) entries[cursor] = live;
         return entries[--cursor];
       },
+      redo() {
+        if (cursor >= 0 && cursor < entries.length - 1) cursor++;
+        return this.current;
+      },
       latest() { cursor = entries.length - 1; },
       get current() { return cursor >= 0 && cursor < entries.length - 1 ? entries[cursor] : null; },
       get count() { return Math.max(0, cursor); },
@@ -73,21 +76,19 @@
     };
   }
 
-  function mount(doc, storage = globalThis.chrome?.storage?.local) {
+  function mount(doc) {
     const win = doc.defaultView;
     const history = createHistory();
-    let prefs = { ...DEFAULTS };
     let grid = null;
-    let toolbar = null;
+    let navigation = null;
     let historyView = null;
-    let undoButton, latestButton, status, adsInput, promotionsInput;
+    let undoButton, nextButton, status;
     let pending = null;
     let settleTimer = null;
     let refreshTimer = null;
     let scanTimer = null;
     let disposed = false;
     let notice = "";
-    let settingsTouched = false;
 
     function node(tag, className, text) {
       const element = doc.createElement(tag);
@@ -99,19 +100,14 @@
       return grid ? [...grid.querySelectorAll(CARDS)].map(readCard).filter(Boolean).slice(0, 100) : [];
     }
     function updateControls() {
-      if (!toolbar) return;
+      if (!navigation) return;
       undoButton.disabled = Boolean(pending) || !history.count;
-      latestButton.hidden = !history.viewing;
-      latestButton.disabled = Boolean(pending);
+      nextButton.disabled = Boolean(pending) || !history.viewing;
       const text = pending ? "正在换一换…" : notice || (history.viewing ? "正在查看之前的推荐" : `可撤回 ${history.count} 次 · 仅保留本页`);
       if (status.textContent !== text) status.textContent = text;
     }
-    function applyPrefs() {
-      doc.documentElement.classList.add("caption-lite-home");
-      doc.documentElement.classList.toggle("cl-home-hide-ads", prefs.hideAds);
-      doc.documentElement.classList.toggle("cl-home-hide-promotions", prefs.hidePromotions);
-      if (adsInput) adsInput.checked = prefs.hideAds;
-      if (promotionsInput) promotionsInput.checked = prefs.hidePromotions;
+    function applyFilters() {
+      doc.documentElement.classList.add("caption-lite-home", "cl-home-hide-ads", "cl-home-hide-promotions");
     }
     function renderHistory(cards) {
       historyView?.remove();
@@ -147,19 +143,15 @@
       }
       grid.append(historyView);
     }
-    function returnToLatest() {
-      history.latest();
-      notice = "";
-      renderHistory(null);
-      updateControls();
-    }
-    function makeToolbar() {
-      toolbar = node("section");
-      toolbar.id = "caption-lite-home-tools";
-      toolbar.setAttribute("aria-label", "Caption Lite 首页工具");
-      undoButton = node("button", "", "撤回换一换");
+    function makeNavigation() {
+      navigation = node("div");
+      navigation.id = "caption-lite-home-nav";
+      navigation.setAttribute("role", "group");
+      navigation.setAttribute("aria-label", "推荐历史");
+      undoButton = node("button", "", "←");
       undoButton.type = "button";
-      undoButton.title = "恢复上一次换一换之前的推荐，最多保留 10 次";
+      undoButton.title = "上一批推荐";
+      undoButton.setAttribute("aria-label", undoButton.title);
       undoButton.addEventListener("click", () => {
         if (pending) return;
         const cards = history.undo(snapshot());
@@ -168,29 +160,20 @@
         renderHistory(cards);
         updateControls();
       });
-      latestButton = node("button", "", "回到最新");
-      latestButton.type = "button";
-      latestButton.addEventListener("click", returnToLatest);
-      toolbar.append(undoButton, latestButton);
-      for (const [key, labelText] of [["hideAds", "隐藏广告"], ["hidePromotions", "隐藏轮播推广"]]) {
-        const label = node("label");
-        const input = node("input");
-        input.type = "checkbox";
-        input.checked = prefs[key];
-        input.addEventListener("change", () => {
-          settingsTouched = true;
-          prefs[key] = input.checked;
-          applyPrefs();
-          storage?.set({ bilibiliHome: { ...prefs } }).catch(() => {});
-        });
-        if (key === "hideAds") adsInput = input;
-        else promotionsInput = input;
-        label.append(input, node("span", "", labelText));
-        toolbar.append(label);
-      }
+      nextButton = node("button", "", "→");
+      nextButton.type = "button";
+      nextButton.title = "下一批推荐";
+      nextButton.setAttribute("aria-label", nextButton.title);
+      nextButton.addEventListener("click", () => {
+        if (pending || !history.viewing) return;
+        history.redo();
+        notice = "";
+        renderHistory(history.current);
+        updateControls();
+      });
       status = node("span", "cl-home-status");
       status.setAttribute("role", "status");
-      toolbar.append(status);
+      navigation.append(undoButton, nextButton, status);
       updateControls();
     }
     function finishRefresh() {
@@ -212,8 +195,11 @@
         grid?.classList.remove("cl-home-history-active");
         grid = nextGrid;
       }
-      if (!toolbar) makeToolbar();
-      if (!toolbar.isConnected) grid.prepend(toolbar);
+      const refreshButton = grid.parentElement.querySelector(".feed-roll-btn .roll-btn");
+      if (refreshButton) {
+        if (!navigation) makeNavigation();
+        if (refreshButton.nextElementSibling !== navigation) refreshButton.after(navigation);
+      }
       for (const card of grid.querySelectorAll(CARDS)) {
         card.toggleAttribute("data-caption-lite-ad", isAdCard(card));
       }
@@ -251,14 +237,7 @@
       if (records.every((record) => (record.target.nodeType === 1 ? record.target : record.target.parentElement)?.closest(OWN))) return;
       if (scanTimer === null) scanTimer = win.setTimeout(scan, 80);
     });
-    applyPrefs();
-    storage?.get("bilibiliHome").then((saved) => {
-      if (disposed || settingsTouched) return;
-      for (const key of Object.keys(DEFAULTS)) {
-        if (typeof saved?.bilibiliHome?.[key] === "boolean") prefs[key] = saved.bilibiliHome[key];
-      }
-      applyPrefs();
-    }).catch(() => {});
+    applyFilters();
     observer.observe(doc.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
     doc.addEventListener("click", onRefresh, true);
     scan();
@@ -270,7 +249,7 @@
         doc.removeEventListener("click", onRefresh, true);
         grid?.classList.remove("cl-home-history-active");
         doc.querySelectorAll("[data-caption-lite-ad]").forEach((card) => card.removeAttribute("data-caption-lite-ad"));
-        toolbar?.remove();
+        navigation?.remove();
         historyView?.remove();
         doc.documentElement.classList.remove("caption-lite-home", "cl-home-hide-ads", "cl-home-hide-promotions");
       }

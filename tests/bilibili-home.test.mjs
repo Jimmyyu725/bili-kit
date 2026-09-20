@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+await import("../src/bilibili-home.js");
+const { createHistory, safeUrl, isAdCard, readCard } = globalThis.CaptionLiteHome;
+const batch = (n) => [{ url: `https://www.bilibili.com/video/BV${n}`, title: `Video ${n}` }];
+const history = createHistory();
+assert.equal(history.count, 0);
+assert.equal(history.undo(batch(1)), null);
+assert.equal(history.record(batch(1), []), false);
+assert.equal(history.record(batch(1), batch(1)), false);
+assert.equal(history.record(batch(1), batch(2)), true);
+assert.equal(history.record(batch(2), batch(3)), true);
+assert.equal(history.count, 2);
+assert.deepEqual(history.undo(batch(3)), batch(2));
+assert.deepEqual(history.undo(batch(3)), batch(1));
+assert.equal(history.undo(batch(3)), null);
+assert.equal(history.viewing, true);
+history.latest();
+assert.equal(history.viewing, false);
+assert.equal(history.count, 2);
+assert.deepEqual(history.undo(batch(3)), batch(2));
+assert.equal(history.record(history.current, batch(4)), true);
+assert.equal(history.count, 2);
+assert.deepEqual(history.undo(batch(4)), batch(2));
+assert.deepEqual(history.undo(batch(4)), batch(1));
+history.latest();
+for (let n = 4; n < 30; n++) history.record(batch(n), batch(n + 1));
+assert.equal(history.count, 10);
+for (let n = 29; n >= 20; n--) assert.deepEqual(history.undo(batch(30)), batch(n));
+assert.equal(history.count, 0);
+assert.equal(createHistory().count, 0);
+
+assert.equal(safeUrl("//www.bilibili.com/video/BVtest?trackid=private#x"), "https://www.bilibili.com/video/BVtest");
+assert.equal(safeUrl("//live.bilibili.com/123"), "https://live.bilibili.com/123");
+for (const url of ["", null, "javascript:alert(1)", "data:text/html,x", "https://cm.bilibili.com/ad", "https://www.bilibili.com.evil.test/x", "https://a:b@www.bilibili.com/"]) assert.equal(safeUrl(url), "");
+assert.equal(safeUrl("//i1.hdslb.com/cover.jpg", true), "https://i1.hdslb.com/cover.jpg");
+assert.equal(safeUrl("https://unrelated.test/cover.jpg", true), "");
+const fakeCard = (links, badge = false) => ({
+  querySelector: () => badge ? {} : null,
+  querySelectorAll: () => links.map((href) => ({ getAttribute: () => href }))
+});
+assert.equal(isAdCard(fakeCard(["//cm.bilibili.com/cm/api/fees/pc/sync/v2?x=1"])), true);
+assert.equal(isAdCard(fakeCard(["https://www.bilibili.com/video/BV1"])), false);
+assert.equal(isAdCard(fakeCard([], true)), true);
+assert.equal(isAdCard(fakeCard(["https://example.com/?q=cm.bilibili.com"])), false);
+assert.equal(readCard(fakeCard(["//cm.bilibili.com/ad"])), null);
+assert.equal(readCard(fakeCard([])), null);
+const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url)));
+const home = manifest.content_scripts.find((script) => script.js.includes("src/bilibili-home.js"));
+assert.deepEqual(home.matches, ["https://www.bilibili.com/*", "https://bilibili.com/*"]);
+assert.deepEqual(home.css, ["src/bilibili-home.css"]);
+assert.equal(home.run_at, "document_start");
+assert.notEqual(home.world, "MAIN");
+console.log("Homepage checks passed: undo/branch/limit, safe links, ads, manifest.");

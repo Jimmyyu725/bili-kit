@@ -6,6 +6,12 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(resolve(projectRoot, "manifest.json"), "utf8"));
 
+assert.equal(manifest.name, "Bili Kit");
+assert.equal(manifest.action.default_title, "打开 Bili Kit");
+const packageInfo = JSON.parse(await readFile(resolve(projectRoot, "package.json"), "utf8"));
+assert.equal(packageInfo.name, "bili-kit");
+assert.match(manifest.description, /首页推荐回溯/);
+assert.match(manifest.description, /YouTube/);
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.minimum_chrome_version, "114");
 assert.deepEqual(manifest.permissions.sort(), ["clipboardWrite", "sidePanel", "storage", "webNavigation"]);
@@ -139,6 +145,9 @@ assert.doesNotMatch(panelSource, /setCommentCopyState\(\{ status: "loading", cou
 assert.doesNotMatch(panelSource, /TRANSLATE_CAPTIONS|Google 翻译/);
 
 const panelMarkup = await readFile(resolve(projectRoot, "src/sidepanel.html"), "utf8");
+assert.match(panelMarkup, /<title>Bili Kit<\/title>/);
+assert.doesNotMatch(contentSource, /Caption Lite/);
+assert.doesNotMatch(panelSource, /Caption Lite/);
 assert.match(panelMarkup, /id="copy-comments-button"[^>]*disabled[^>]*>正在加载评论…<\/button>/);
 assert.doesNotMatch(panelMarkup, /translate-row|Google 翻译/);
 assert.doesNotMatch(panelMarkup, /auto-scroll|自动跟随/);

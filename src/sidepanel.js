@@ -31,7 +31,7 @@
 
     if (Object.values(elements).some((element) => !element)) {
       mountedRoots.delete(root);
-      throw new Error("Caption Lite panel markup is incomplete");
+      throw new Error("Bili Kit panel markup is incomplete");
     }
 
   let activeTabId = null;

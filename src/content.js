@@ -521,7 +521,7 @@
       const host = embedRoot;
       mountPanelUi(host)
         .catch((error) => {
-          if (host.isConnected) host.textContent = `Caption Lite：${error.message}`;
+          if (host.isConnected) host.textContent = `Bili Kit：${error.message}`;
         });
     }
 
@@ -568,7 +568,7 @@
       const host = embedRoot;
       mountPanelUi(host)
         .catch((error) => {
-          if (host.isConnected) host.textContent = `Caption Lite：${error.message}`;
+          if (host.isConnected) host.textContent = `Bili Kit：${error.message}`;
         });
     }
 

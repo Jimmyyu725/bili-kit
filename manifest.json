@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Caption Lite",
+  "name": "Bili Kit",
   "version": "0.1.0",
-  "description": "本地提取并浏览 YouTube 和 Bilibili 已有字幕。",
+  "description": "Bilibili 轻量工具箱：字幕提取、评论复制、首页推荐回溯与推广过滤，兼容 YouTube 字幕。",
   "minimum_chrome_version": "114",
   "permissions": [
     "storage",
@@ -23,7 +23,7 @@
     "128": "assets/icons/icon-128.png"
   },
   "action": {
-    "default_title": "打开 Caption Lite",
+    "default_title": "打开 Bili Kit",
     "default_icon": {
       "16": "assets/icons/icon-16.png",
       "32": "assets/icons/icon-32.png"

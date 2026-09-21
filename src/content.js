@@ -23,6 +23,15 @@
   let lastPlaybackSentAt = 0;
   let latestState = null;
   let latestPlaybackMs = 0;
+  let latestCommentCopyState = {
+    status: "idle",
+    count: 0,
+    message: "",
+    canCopy: false,
+    canRetry: false,
+    complete: false,
+    limitReached: false
+  };
   let embedRoot = null;
   let embeddedPanel = null;
   let observedPlayer = null;
@@ -33,6 +42,7 @@
   let paddedYouTubeSidebar = null;
   let originalSidebarPaddingTop = "";
   const COLLAPSED_PANEL_HEIGHT = 140;
+  const BILIBILI_COLLAPSED_PANEL_HEIGHT = 174;
   const BILIBILI_MAX_RETRY_DELAY = 10_000;
 
   function sendRuntimeMessage(message) {
@@ -54,6 +64,45 @@
     });
   }
 
+  function publishCommentCopyState(state) {
+    latestCommentCopyState = {
+      status: state?.status || "idle",
+      count: Math.max(0, Number(state?.count) || 0),
+      message: String(state?.message || ""),
+      canCopy: Boolean(state?.canCopy),
+      canRetry: Boolean(state?.canRetry),
+      complete: Boolean(state?.complete),
+      limitReached: Boolean(state?.limitReached)
+    };
+    embeddedPanel?.setCommentCopyState(latestCommentCopyState);
+    return sendRuntimeMessage({
+      type: "COMMENTS_COPY_STATE",
+      state: latestCommentCopyState
+    });
+  }
+
+  async function copyCommentText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall through to the content-script copy method.
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.cssText = "position:fixed;left:-9999px;top:0";
+    document.body.append(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+    return copied;
+  }
+
   function getYouTubeVideoId() {
     const url = new URL(location.href);
     return url.searchParams.get("v")
@@ -68,6 +117,26 @@
     const pageNumber = Math.max(1, Number(url.searchParams.get("p")) || 1);
     return { videoId, pageNumber, pageKey: `${videoId}:${pageNumber}` };
   }
+
+  const commentCopyController = globalThis.CaptionLiteCommentCopy.createController({
+    getPageKey: () => getBilibiliIdentity()?.pageKey || "",
+    loadComments: (pageKey, { signal, onSnapshot, onRetry }) => {
+      const identity = getBilibiliIdentity();
+      if (!identity || identity.pageKey !== pageKey) {
+        return Promise.resolve({ pageKey, error: "当前 Bilibili 视频已变化" });
+      }
+      return globalThis.CaptionLiteBilibiliCommentLoader.loadAllComments({
+        pageKey,
+        videoId: identity.videoId,
+        signal,
+        isCurrent: () => !signal.aborted && getBilibiliIdentity()?.pageKey === pageKey,
+        onSnapshot,
+        onRetry
+      });
+    },
+    copyText: copyCommentText,
+    publishState: publishCommentCopyState
+  });
 
   function resetBilibiliRetry(pageKey = "") {
     clearTimeout(bilibiliRetryTimer);
@@ -91,13 +160,26 @@
     const identity = getBilibiliIdentity();
     if (!identity) {
       resetBilibiliRetry();
+      if (currentBilibiliPageKey) {
+        currentBilibiliPageKey = "";
+        commentCopyController.invalidate();
+      }
       return;
     }
     if (!force && identity.pageKey === currentBilibiliPageKey) return;
+    if (identity.pageKey !== currentBilibiliPageKey) {
+      commentCopyController.invalidate();
+    }
     if (identity.pageKey !== bilibiliRetryPageKey) resetBilibiliRetry(identity.pageKey);
     clearTimeout(bilibiliRetryTimer);
     bilibiliRetryTimer = null;
     currentBilibiliPageKey = identity.pageKey;
+    commentCopyController.startLoading().catch((error) => {
+      publishCommentCopyState({
+        status: "error",
+        message: `评论读取失败：${error instanceof Error ? error.message : "未知错误"}`
+      }).catch(() => {});
+    });
 
     publishState({
       source: "bilibili",
@@ -416,6 +498,7 @@
     });
     if (latestState) embeddedPanel?.setState(latestState);
     embeddedPanel?.setPlayback(latestPlaybackMs);
+    embeddedPanel?.setCommentCopyState(latestCommentCopyState);
   }
 
   function mountBilibiliPanel() {
@@ -425,8 +508,10 @@
     }
 
     const danmakuBox = document.querySelector("#danmukuBox");
+    if (!danmakuBox) return;
+    const danmakuContainer = danmakuBox.parentElement;
     const player = document.querySelector("#bilibili-player");
-    if (!danmakuBox?.parentElement || !player) return;
+    if (!danmakuContainer || !player) return;
 
     if (embedRoot && !embedRoot.isConnected) removeEmbeddedPanel();
 
@@ -436,34 +521,26 @@
       const host = embedRoot;
       mountPanelUi(host)
         .catch((error) => {
-          if (host.isConnected) host.textContent = `Caption Lite：${error.message}`;
+          if (host.isConnected) host.textContent = `Bili Kit：${error.message}`;
         });
     }
 
     const updateHeight = () => {
       if (!embedRoot?.isConnected) return;
-      const playlist = document.querySelector(".video-pod");
-      const playlistContainer = playlist?.getBoundingClientRect().height > 0
-        ? playlist.parentElement
-        : null;
       const height = embeddedPanelCollapsed
-        ? COLLAPSED_PANEL_HEIGHT
+        ? BILIBILI_COLLAPSED_PANEL_HEIGHT
         : Math.max(360, player.getBoundingClientRect().height);
 
-      if (paddedBilibiliContainer !== playlistContainer) {
+      if (paddedBilibiliContainer !== danmakuContainer) {
         if (paddedBilibiliContainer) {
           paddedBilibiliContainer.style.paddingTop = originalBilibiliPaddingTop;
         }
-        paddedBilibiliContainer = playlistContainer;
-        originalBilibiliPaddingTop = playlistContainer?.style.paddingTop || "";
+        paddedBilibiliContainer = danmakuContainer;
+        originalBilibiliPaddingTop = danmakuContainer.style.paddingTop || "";
       }
 
-      if (playlistContainer) {
-        playlistContainer.style.paddingTop = `${Math.round(height + 12)}px`;
-        placeEmbedRoot(playlistContainer, height);
-      } else {
-        placeEmbedRoot(danmakuBox, height);
-      }
+      danmakuContainer.style.paddingTop = `${Math.round(height + 12)}px`;
+      placeEmbedRoot(danmakuContainer, height);
     };
     updateHeight();
 
@@ -491,7 +568,7 @@
       const host = embedRoot;
       mountPanelUi(host)
         .catch((error) => {
-          if (host.isConnected) host.textContent = `Caption Lite：${error.message}`;
+          if (host.isConnected) host.textContent = `Bili Kit：${error.message}`;
         });
     }
 
@@ -533,6 +610,25 @@
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "BILIBILI_NAVIGATION") {
+      if (location.hostname.endsWith("bilibili.com")) {
+        if (getBilibiliIdentity()) {
+          commentCopyController.restartLoading().catch((error) => {
+            publishCommentCopyState({
+              status: "error",
+              message: `评论读取失败：${error instanceof Error ? error.message : "未知错误"}`
+            }).catch(() => {});
+          });
+        } else {
+          currentBilibiliPageKey = "";
+          commentCopyController.invalidate();
+        }
+        publishCommentCopyState(latestCommentCopyState).catch(() => {});
+      }
+      sendResponse({ success: true });
+      return;
+    }
+
     if (message?.type === "SEEK") {
       bindVideo();
       if (!boundVideo || !Number.isFinite(message.startMs)) {
@@ -548,6 +644,18 @@
     if (message?.type === "REFRESH_CAPTIONS") {
       handleNavigation(true);
       sendResponse({ success: true });
+      return;
+    }
+
+    if (message?.type === "COPY_BILIBILI_COMMENTS") {
+      commentCopyController.copyCurrent().catch((error) => {
+        publishCommentCopyState({
+          status: "error",
+          message: `评论读取失败：${error instanceof Error ? error.message : "未知错误"}`
+        }).catch(() => {});
+      });
+      sendResponse({ success: true });
+      return;
     }
   });
 

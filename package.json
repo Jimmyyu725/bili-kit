@@ -1,8 +1,8 @@
 {
-  "name": "caption-lite",
+  "name": "bili-kit",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "node tests/parsers.test.mjs && node tests/manifest.test.mjs"
+    "test": "node tests/parsers.test.mjs && node tests/bilibili-comments.test.mjs && node tests/comment-copy-controller.test.mjs && node tests/bilibili-comment-loader.test.mjs && node tests/manifest.test.mjs && node tests/bilibili-home.test.mjs"
   }
 }

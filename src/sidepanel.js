@@ -23,6 +23,7 @@
       status: root.querySelector("#status"),
       count: root.querySelector("#count"),
       captionList: root.querySelector("#caption-list"),
+      copyCommentsButton: root.querySelector("#copy-comments-button"),
       copyButton: root.querySelector("#copy-button"),
       downloadSrtButton: root.querySelector("#download-srt-button"),
       downloadTxtButton: root.querySelector("#download-txt-button")
@@ -30,7 +31,7 @@
 
     if (Object.values(elements).some((element) => !element)) {
       mountedRoots.delete(root);
-      throw new Error("Caption Lite panel markup is incomplete");
+      throw new Error("Bili Kit panel markup is incomplete");
     }
 
   let activeTabId = null;
@@ -41,6 +42,15 @@
   let autoScrollActive = true;
   let autoScrollResumeTimer = null;
   let collapsed = false;
+  let commentCopyState = {
+    status: "idle",
+    count: 0,
+    message: "",
+    canCopy: false,
+    canRetry: false,
+    complete: false,
+    limitReached: false
+  };
 
   function sendMessage(message) {
     return chrome.runtime.sendMessage(message).catch(() => null);
@@ -49,6 +59,40 @@
   function getSelectedTrack() {
     const tracks = currentState?.tracks || [];
     return tracks.find((track) => track.id === currentTrackId) || tracks[0] || null;
+  }
+
+  function renderCommentCopyButton() {
+    const visible = currentState?.source === "bilibili";
+    elements.copyCommentsButton.hidden = !visible;
+    if (!visible) return;
+    elements.copyCommentsButton.disabled = activeTabId == null || !commentCopyState.canCopy;
+    elements.copyCommentsButton.textContent = getCommentCopyButtonLabel();
+    if (commentCopyState.message) elements.status.textContent = commentCopyState.message;
+  }
+
+  function getCommentCopyButtonLabel() {
+    if (commentCopyState.limitReached) return `复制 ${commentCopyState.count} 条（上限）`;
+    if (commentCopyState.complete) return `复制全部 ${commentCopyState.count} 条`;
+    if (commentCopyState.count > 0) return `复制当前 ${commentCopyState.count} 条`;
+    return "正在加载评论…";
+  }
+
+  function normalizeCommentCopyState(state = {}) {
+    const value = state && typeof state === "object" ? state : {};
+    return {
+      status: value.status || "idle",
+      count: Math.max(0, Number(value.count) || 0),
+      message: String(value.message || ""),
+      canCopy: Boolean(value.canCopy),
+      canRetry: Boolean(value.canRetry),
+      complete: Boolean(value.complete),
+      limitReached: Boolean(value.limitReached)
+    };
+  }
+
+  function setCommentCopyState(state = {}) {
+    commentCopyState = normalizeCommentCopyState(state);
+    renderCommentCopyButton();
   }
 
   function formatClock(milliseconds) {
@@ -159,6 +203,7 @@
       || (state?.status === "ready" ? "字幕已读取。点击任意字幕可跳转。" : "打开支持的视频后再试。");
     renderTrackOptions();
     renderCaptions();
+    renderCommentCopyButton();
   }
 
   function highlightCurrentCaption(forceScroll = false) {
@@ -221,6 +266,7 @@
   async function loadActiveState() {
     const response = await sendMessage({ type: "GET_ACTIVE_STATE" });
     activeTabId = response?.tabId ?? null;
+    commentCopyState = normalizeCommentCopyState(response?.commentCopyState);
     if (!embedded || response?.state) {
       currentState = response?.state ?? null;
       renderState();
@@ -282,6 +328,20 @@
       .join("\n"));
     elements.status.textContent = copied ? "字幕已复制（含时间戳）。" : "复制失败，请使用下载 TXT。";
   });
+  elements.copyCommentsButton.addEventListener("click", async () => {
+    if (activeTabId == null) return;
+    const response = await sendMessage({
+      type: "COPY_BILIBILI_COMMENTS",
+      tabId: activeTabId
+    });
+    if (!response?.success) {
+      setCommentCopyState({
+        ...commentCopyState,
+        status: "error",
+        message: response?.error || "无法开始读取评论。"
+      });
+    }
+  });
   elements.downloadSrtButton.addEventListener("click", () => {
     download("srt", formatSrt(getSelectedTrack()?.captions || []));
   });
@@ -298,7 +358,11 @@
       activeTabId = message.tabId;
       currentState = message.state;
       currentTrackId = "";
+      commentCopyState = normalizeCommentCopyState(message.commentCopyState);
       renderState();
+    }
+    if (message?.type === "COMMENTS_COPY_STATE" && message.tabId === activeTabId) {
+      setCommentCopyState(message.state);
     }
     if (message?.type === "PLAYBACK_BROADCAST" && message.tabId === activeTabId) {
       currentTimeMs = message.currentMs;
@@ -318,6 +382,7 @@
         currentTimeMs = currentMs;
         highlightCurrentCaption();
       },
+      setCommentCopyState,
       dispose() {
         mountedRoots.delete(root);
         clearTimeout(autoScrollResumeTimer);

@@ -6,9 +6,15 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(resolve(projectRoot, "manifest.json"), "utf8"));
 
+assert.equal(manifest.name, "Bili Kit");
+assert.equal(manifest.action.default_title, "打开 Bili Kit");
+const packageInfo = JSON.parse(await readFile(resolve(projectRoot, "package.json"), "utf8"));
+assert.equal(packageInfo.name, "bili-kit");
+assert.match(manifest.description, /首页推荐回溯/);
+assert.match(manifest.description, /YouTube/);
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.minimum_chrome_version, "114");
-assert.deepEqual(manifest.permissions.sort(), ["sidePanel", "storage"]);
+assert.deepEqual(manifest.permissions.sort(), ["clipboardWrite", "sidePanel", "storage", "webNavigation"]);
 assert.ok(!manifest.host_permissions.includes("<all_urls>"));
 assert.ok(!manifest.host_permissions.includes("https://translation.googleapis.com/*"));
 assert.deepEqual(Object.keys(manifest.icons), ["16", "32", "48", "128"]);
@@ -21,6 +27,7 @@ const bilibiliMain = manifest.content_scripts.find((script) =>
   script.js?.includes("src/bilibili-main.js")
 );
 assert.equal(bilibiliMain?.world, "MAIN");
+assert.deepEqual(bilibiliMain?.js, ["src/bilibili-main.js"]);
 const youtubeMain = manifest.content_scripts.find((script) =>
   script.js?.includes("src/youtube-main.js")
 );
@@ -38,6 +45,9 @@ const isolatedContent = manifest.content_scripts.find((script) =>
 );
 assert.deepEqual(isolatedContent?.js, [
   "src/parsers.js",
+  "src/bilibili-comments.js",
+  "src/bilibili-comment-loader.js",
+  "src/comment-copy-controller.js",
   "src/sidepanel.js",
   "src/content.js"
 ]);
@@ -51,15 +61,46 @@ assert.match(contentSource, /function mountYouTubePanel\(\)/);
 assert.match(contentSource, /ytd-watch-flexy #secondary-inner/);
 assert.match(contentSource, /document\.body\.append\(embedRoot\)/);
 assert.doesNotMatch(contentSource, /danmakuBox\.before\(|sidebar\.prepend\(/);
-assert.match(contentSource, /document\.querySelector\("\.video-pod"\)/);
-assert.match(contentSource, /playlistContainer\.style\.paddingTop/);
+assert.match(contentSource, /const danmakuContainer = danmakuBox\.parentElement/);
+assert.match(contentSource, /paddedBilibiliContainer = danmakuContainer/);
+assert.match(contentSource, /placeEmbedRoot\(danmakuContainer, height\)/);
+assert.doesNotMatch(contentSource, /document\.querySelector\("\.video-pod"\)/);
+assert.match(contentSource, /const COLLAPSED_PANEL_HEIGHT = 140/);
+assert.match(contentSource, /const BILIBILI_COLLAPSED_PANEL_HEIGHT = 174/);
+assert.match(contentSource, /embeddedPanelCollapsed\s*\? BILIBILI_COLLAPSED_PANEL_HEIGHT/);
 assert.match(contentSource, /embeddedPanelCollapsed\s*\? COLLAPSED_PANEL_HEIGHT/);
-assert.match(contentSource, /COLLAPSED_PANEL_HEIGHT = 140/);
 assert.match(contentSource, /function scheduleBilibiliRetry\(pageKey\)/);
 assert.match(contentSource, /bilibiliRetryDelay \* 1\.6/);
 assert.match(contentSource, /BILIBILI_MAX_RETRY_DELAY = 10_000/);
 assert.match(contentSource, /loadBilibili\(true\)/);
 assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.pageKey\)/);
+assert.match(contentSource, /navigator\.clipboard\.writeText/);
+assert.match(contentSource, /CaptionLiteCommentCopy/);
+assert.match(contentSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/);
+assert.match(contentSource, /loadComments: \(pageKey, \{ signal, onSnapshot, onRetry \}\)/);
+assert.match(contentSource, /limitReached: Boolean\(state\?\.limitReached\)/);
+assert.match(contentSource, /commentCopyController\.startLoading\(\)/);
+assert.match(contentSource, /BILIBILI_NAVIGATION/);
+const bilibiliNavigationHandler = contentSource.slice(
+  contentSource.indexOf('message?.type === "BILIBILI_NAVIGATION"'),
+  contentSource.indexOf('message?.type === "SEEK"')
+);
+assert.match(bilibiliNavigationHandler, /commentCopyController\.restartLoading\(\)/);
+assert.match(bilibiliNavigationHandler, /sendResponse\(\{ success: true \}\)/);
+assert.match(
+  contentSource,
+  /if \(!identity\) \{[\s\S]{0,180}currentBilibiliPageKey = "";[\s\S]{0,180}commentCopyController\.invalidate\(\)/
+);
+assert.doesNotMatch(contentSource, /FETCH_BILIBILI_COMMENTS/);
+assert.doesNotMatch(contentSource, /BILIBILI_COMMENTS_RESULT/);
+assert.match(
+  contentSource,
+  /COPY_BILIBILI_COMMENTS[\s\S]*commentCopyController\.copyCurrent\(\)\.catch[\s\S]*sendResponse\(\{ success: true \}\)/
+);
+assert.doesNotMatch(
+  contentSource,
+  /commentCopyController\.copyCurrent\(\)[\s\S]{0,120}\.then\([\s\S]{0,120}sendResponse/
+);
 
 const panelSource = await readFile(resolve(projectRoot, "src/sidepanel.js"), "utf8");
 assert.match(panelSource, /setPlayback\(currentMs\)/);
@@ -75,28 +116,86 @@ assert.match(panelSource, /highlightCurrentCaption\(true\);\s*\}, 3000\)/);
 assert.match(panelSource, /onCollapsedChange\?\.\(collapsed\)/);
 assert.match(panelSource, /aria-expanded/);
 assert.match(panelSource, /\[\$\{formatClock\(caption\.startMs\)\}\] \$\{caption\.text\}/);
+assert.match(panelSource, /COPY_BILIBILI_COMMENTS/);
+assert.match(panelSource, /setCommentCopyState/);
+assert.match(panelSource, /`复制当前 \$\{commentCopyState\.count\} 条`/);
+assert.match(panelSource, /`复制全部 \$\{commentCopyState\.count\} 条`/);
+assert.match(panelSource, /`复制 \$\{commentCopyState\.count\} 条（上限）`/);
+assert.match(panelSource, /limitReached: Boolean\(value\.limitReached\)/);
+assert.match(
+  panelSource,
+  /function normalizeCommentCopyState\(state = \{\}\) \{\s*const value = state && typeof state === "object" \? state : \{\};[\s\S]*?status: value\.status \|\| "idle",[\s\S]*?count: Math\.max\(0, Number\(value\.count\) \|\| 0\),[\s\S]*?message: String\(value\.message \|\| ""\),[\s\S]*?canCopy: Boolean\(value\.canCopy\),[\s\S]*?canRetry: Boolean\(value\.canRetry\),[\s\S]*?complete: Boolean\(value\.complete\),[\s\S]*?limitReached: Boolean\(value\.limitReached\)/
+);
+assert.match(panelSource, /"正在加载评论…"/);
+assert.match(panelSource, /activeTabId == null \|\| !commentCopyState\.canCopy/);
+const commentCopyButtonLabel = panelSource.slice(
+  panelSource.indexOf("function getCommentCopyButtonLabel"),
+  panelSource.indexOf("function normalizeCommentCopyState")
+);
+assert.ok(
+  commentCopyButtonLabel.indexOf("commentCopyState.limitReached")
+    < commentCopyButtonLabel.indexOf("commentCopyState.complete"),
+  "limitReached must take precedence over complete when rendering the copy button"
+);
+assert.match(
+  panelSource,
+  /if \(!response\?\.success\) \{\s*setCommentCopyState\(\{\s*\.\.\.commentCopyState,\s*status: "error",\s*message: response\?\.error \|\| "无法开始读取评论。"/
+);
+assert.doesNotMatch(panelSource, /setCommentCopyState\(\{ status: "loading", count: 0/);
 assert.doesNotMatch(panelSource, /TRANSLATE_CAPTIONS|Google 翻译/);
 
 const panelMarkup = await readFile(resolve(projectRoot, "src/sidepanel.html"), "utf8");
+assert.match(panelMarkup, /<title>Bili Kit<\/title>/);
+assert.doesNotMatch(contentSource, /Caption Lite/);
+assert.doesNotMatch(panelSource, /Caption Lite/);
+assert.match(panelMarkup, /id="copy-comments-button"[^>]*disabled[^>]*>正在加载评论…<\/button>/);
 assert.doesNotMatch(panelMarkup, /translate-row|Google 翻译/);
 assert.doesNotMatch(panelMarkup, /auto-scroll|自动跟随/);
 assert.match(panelMarkup, /<h1>字幕列表<\/h1>/);
 assert.match(panelMarkup, /复制（含时间）/);
 assert.match(panelMarkup, /id="collapse-button"/);
+assert.match(panelMarkup, /id="copy-comments-button"/);
 
 const panelStyles = await readFile(resolve(projectRoot, "src/sidepanel.css"), "utf8");
 assert.match(panelStyles, /\.caption-row \.text \{ font-size: 17px; \}/);
 assert.match(panelStyles, /font-family: ui-monospace/);
 assert.match(panelStyles, /box-shadow: inset 3px 0 var\(--accent\)/);
 assert.match(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.caption-list/);
+assert.match(panelStyles, /\.copy-comments-button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
 assert.doesNotMatch(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.footer/);
 
 const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-worker.js"), "utf8");
 assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.googleapis\.com|private-config/);
+assert.match(serviceWorkerSource, /COPY_BILIBILI_COMMENTS/);
+assert.match(serviceWorkerSource, /COMMENTS_COPY_STATE/);
+assert.match(serviceWorkerSource, /chrome\.webNavigation\.onHistoryStateUpdated/);
+assert.match(serviceWorkerSource, /chrome\.webNavigation\.onCommitted/);
+assert.match(serviceWorkerSource, /BILIBILI_NAVIGATION/);
+const tabUpdatedHandler = serviceWorkerSource.slice(
+  serviceWorkerSource.indexOf("chrome.tabs.onUpdated.addListener"),
+  serviceWorkerSource.indexOf("chrome.tabs.onRemoved.addListener")
+);
+assert.ok(
+  tabUpdatedHandler.indexOf("chrome.storage.session.remove")
+    < tabUpdatedHandler.indexOf("chrome.tabs.sendMessage"),
+  "tab URL updates must clear stale state before asking the content script to republish"
+);
+assert.ok(
+  tabUpdatedHandler.indexOf("ACTIVE_TAB_STATE")
+    < tabUpdatedHandler.indexOf("chrome.tabs.sendMessage"),
+  "the final navigation notification must not be overwritten by a stale null broadcast"
+);
+assert.doesNotMatch(serviceWorkerSource, /FETCH_BILIBILI_COMMENTS/);
+assert.doesNotMatch(serviceWorkerSource, /CaptionLiteBilibiliCommentLoader/);
+assert.doesNotMatch(serviceWorkerSource, /CaptionLiteCommentJobs/);
+assert.doesNotMatch(serviceWorkerSource, /chrome\.scripting\.executeScript/);
 
 const bilibiliSource = await readFile(resolve(projectRoot, "src/bilibili-main.js"), "utf8");
 assert.match(bilibiliSource, /LOAD_BILIBILI"\) load\(true\)/);
 assert.match(bilibiliSource, /setInterval\(\(\) => load\(false\), 500\)/);
+assert.doesNotMatch(bilibiliSource, /BILIBILI_COMMENTS_(?:PROGRESS|RESULT)/);
+assert.doesNotMatch(bilibiliSource, /CaptionLiteBilibiliCommentLoader/);
+assert.doesNotMatch(bilibiliSource, /\/x\/v2\/reply\//);
 
 const youtubeSource = await readFile(resolve(projectRoot, "src/youtube-main.js"), "utf8");
 assert.match(youtubeSource, /getPlayerResponse\(\)/);

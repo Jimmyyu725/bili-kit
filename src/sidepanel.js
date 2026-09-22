@@ -22,6 +22,7 @@
       searchInput: root.querySelector("#search-input"),
       status: root.querySelector("#status"),
       count: root.querySelector("#count"),
+      commentTraffic: root.querySelector("#comment-traffic"),
       captionList: root.querySelector("#caption-list"),
       copyCommentsButton: root.querySelector("#copy-comments-button"),
       copyButton: root.querySelector("#copy-button"),
@@ -64,6 +65,11 @@
   function renderCommentCopyButton() {
     const visible = currentState?.source === "bilibili";
     elements.copyCommentsButton.hidden = !visible;
+    const traffic = globalThis.CaptionLiteCommentTraffic.describe(commentCopyState.traffic);
+    elements.commentTraffic.hidden = !visible || !commentCopyState.traffic;
+    elements.commentTraffic.textContent = traffic.text;
+    elements.commentTraffic.title = traffic.title;
+    elements.copyCommentsButton.title = traffic.title;
     if (!visible) return;
     elements.copyCommentsButton.disabled = activeTabId == null || !commentCopyState.canCopy;
     elements.copyCommentsButton.textContent = getCommentCopyButtonLabel();
@@ -86,7 +92,8 @@
       canCopy: Boolean(value.canCopy),
       canRetry: Boolean(value.canRetry),
       complete: Boolean(value.complete),
-      limitReached: Boolean(value.limitReached)
+      limitReached: Boolean(value.limitReached),
+      traffic: globalThis.CaptionLiteCommentTraffic.normalize(value.traffic)
     };
   }
 
@@ -266,7 +273,7 @@
   async function loadActiveState() {
     const response = await sendMessage({ type: "GET_ACTIVE_STATE" });
     activeTabId = response?.tabId ?? null;
-    commentCopyState = normalizeCommentCopyState(response?.commentCopyState);
+    if (!embedded) commentCopyState = normalizeCommentCopyState(response?.commentCopyState);
     if (!embedded || response?.state) {
       currentState = response?.state ?? null;
       renderState();

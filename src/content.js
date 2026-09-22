@@ -72,7 +72,8 @@
       canCopy: Boolean(state?.canCopy),
       canRetry: Boolean(state?.canRetry),
       complete: Boolean(state?.complete),
-      limitReached: Boolean(state?.limitReached)
+      limitReached: Boolean(state?.limitReached),
+      traffic: globalThis.CaptionLiteCommentTraffic.normalize(state?.traffic)
     };
     embeddedPanel?.setCommentCopyState(latestCommentCopyState);
     return sendRuntimeMessage({
@@ -120,7 +121,7 @@
 
   const commentCopyController = globalThis.CaptionLiteCommentCopy.createController({
     getPageKey: () => getBilibiliIdentity()?.pageKey || "",
-    loadComments: (pageKey, { signal, onSnapshot, onRetry }) => {
+    loadComments: (pageKey, { signal, onSnapshot, onRetry, onTraffic }) => {
       const identity = getBilibiliIdentity();
       if (!identity || identity.pageKey !== pageKey) {
         return Promise.resolve({ pageKey, error: "当前 Bilibili 视频已变化" });
@@ -131,7 +132,8 @@
         signal,
         isCurrent: () => !signal.aborted && getBilibiliIdentity()?.pageKey === pageKey,
         onSnapshot,
-        onRetry
+        onRetry,
+        onTraffic
       });
     },
     copyText: copyCommentText,

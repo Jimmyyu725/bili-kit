@@ -140,6 +140,7 @@ h1 { margin: 0; font-size: 21px; line-height: 1.2; }
 
 .meta-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -250,3 +251,6 @@ h1 { margin: 0; font-size: 21px; line-height: 1.2; }
 }
 
 .copy-comments-button { grid-column: 1 / -1; }
+
+.comment-traffic { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.comment-traffic[hidden] { display: none; }

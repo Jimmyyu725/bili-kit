@@ -180,11 +180,13 @@
     onProgress = () => {},
     onRetry = () => {},
     onSnapshot = () => {},
+    onTraffic = () => {},
     pageKey,
     signal,
     videoId,
     wait = defaultWait
   }) {
+    fetchImpl = globalThis.CaptionLiteCommentTraffic.createMeasuredFetch(fetchImpl, onTraffic);
     onProgress(0);
     try {
       const threads = [];

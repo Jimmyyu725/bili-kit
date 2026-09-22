@@ -397,4 +397,51 @@ function deferred() {
   assert.doesNotMatch(states.at(-1).message, /仍在继续加载/);
 }
 
+
+
+// Traffic updates share the current job identity and survive copying a snapshot.
+await import("../src/comment-traffic.js");
+{
+  let pageKey = "meter:first";
+  const states = [];
+  const jobs = [];
+  let loads = 0;
+  const controller = createController({
+    getPageKey: () => pageKey,
+    loadComments: (_key, callbacks) => {
+      loads++;
+      const request = deferred();
+      jobs.push({ callbacks, request });
+      return request.promise;
+    },
+    copyText: async () => true,
+    publishState: (state) => states.push(state)
+  });
+  const first = controller.startLoading();
+  await Promise.resolve();
+  jobs[0].callbacks.onTraffic({ requests: 2, completed: 2, decodedBytes: 4321 });
+  jobs[0].callbacks.onSnapshot({ pageKey, count: 1, text: "test", complete: true });
+  jobs[0].request.resolve({ pageKey, count: 1, text: "test", complete: true });
+  await first;
+  await controller.copyCurrent();
+  await controller.copyCurrent();
+  assert.equal(loads, 1);
+  assert.equal(states.at(-1).traffic.decodedBytes, 4321);
+  assert.equal(states.at(-1).traffic.requests, 2);
+  assert.equal(states.at(-1).status, "complete");
+  pageKey = "meter:second";
+  const second = controller.startLoading();
+  await Promise.resolve();
+  assert.equal(states.at(-1).traffic, undefined);
+  jobs[0].callbacks.onTraffic({ requests: 99, decodedBytes: 999999 });
+  assert.equal(states.at(-1).traffic, undefined, "late old-tab metrics ignored");
+  jobs[1].callbacks.onTraffic({ requests: 1, completed: 1, decodedBytes: 42 });
+  jobs[1].request.resolve({ pageKey, error: "HTTP 403" });
+  await second;
+  assert.equal(states.at(-1).traffic.decodedBytes, 42);
+  assert.equal(states.at(-1).status, "error");
+  controller.invalidate();
+  assert.equal(states.at(-1).traffic, undefined);
+}
+
 console.log("Comment copy controller checks passed.");

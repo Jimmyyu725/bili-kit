@@ -45,6 +45,7 @@ const isolatedContent = manifest.content_scripts.find((script) =>
 );
 assert.deepEqual(isolatedContent?.js, [
   "src/parsers.js",
+  "src/comment-traffic.js",
   "src/bilibili-comments.js",
   "src/bilibili-comment-loader.js",
   "src/comment-copy-controller.js",
@@ -77,7 +78,7 @@ assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.page
 assert.match(contentSource, /navigator\.clipboard\.writeText/);
 assert.match(contentSource, /CaptionLiteCommentCopy/);
 assert.match(contentSource, /CaptionLiteBilibiliCommentLoader\.loadAllComments/);
-assert.match(contentSource, /loadComments: \(pageKey, \{ signal, onSnapshot, onRetry \}\)/);
+assert.match(contentSource, /loadComments: \(pageKey, \{ signal, onSnapshot, onRetry, onTraffic \}\)/);
 assert.match(contentSource, /limitReached: Boolean\(state\?\.limitReached\)/);
 assert.match(contentSource, /commentCopyController\.startLoading\(\)/);
 assert.match(contentSource, /BILIBILI_NAVIGATION/);
@@ -155,6 +156,9 @@ assert.match(panelMarkup, /<h1>字幕列表<\/h1>/);
 assert.match(panelMarkup, /复制（含时间）/);
 assert.match(panelMarkup, /id="collapse-button"/);
 assert.match(panelMarkup, /id="copy-comments-button"/);
+assert.match(panelMarkup, /id="comment-traffic"/);
+assert.match(panelMarkup, /src="comment-traffic.js"/);
+assert.match(contentSource, /onTraffic/);
 
 const panelStyles = await readFile(resolve(projectRoot, "src/sidepanel.css"), "utf8");
 assert.match(panelStyles, /\.caption-row \.text \{ font-size: 17px; \}/);

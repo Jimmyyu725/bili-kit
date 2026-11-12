@@ -35,7 +35,16 @@ const youtubeMain = manifest.content_scripts.find((script) =>
   script.js?.includes("src/youtube-main.js")
 );
 assert.equal(youtubeMain?.world, "MAIN");
-assert.deepEqual(youtubeMain?.js, ["src/parsers.js", "src/youtube-main.js"]);
+assert.deepEqual(youtubeMain?.js, ["src/youtube-parsers.js", "src/youtube-main.js"]);
+
+// Chrome injects a file once per page even when two entries ask for it in
+// different worlds, so the second world never sees it. Each file gets one entry.
+const contentScriptFiles = manifest.content_scripts.flatMap((script) => script.js || []);
+assert.deepEqual(
+  contentScriptFiles.filter((file, index) => contentScriptFiles.indexOf(file) !== index),
+  [],
+  "a content script file is listed in more than one content_scripts entry"
+);
 assert.ok(manifest.web_accessible_resources.some((entry) =>
   entry.resources.includes("src/sidepanel.html")
   && entry.resources.includes("src/sidepanel.css")

@@ -7,7 +7,7 @@
   const {
     getYouTubeCaptionTracks,
     parseYouTubeChapters
-  } = globalThis.CaptionLiteParsers;
+  } = globalThis.CaptionLiteYouTubeParsers;
   const SOURCE = "caption-lite-page";
   const xhrUrls = new WeakMap();
   const latestPayloads = new Map();

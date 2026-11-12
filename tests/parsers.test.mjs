@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 
 await import("../src/parsers.js");
+await import("../src/youtube-parsers.js");
 
+const { getYouTubeCaptionTracks, parseYouTubeChapters } = globalThis.CaptionLiteYouTubeParsers;
 const {
   parseYouTubeJson3,
-  getYouTubeCaptionTracks,
-  parseYouTubeChapters,
   parseBilibiliJson,
   parseBilibiliChapters,
   isAllowedBilibiliSubtitleUrl,

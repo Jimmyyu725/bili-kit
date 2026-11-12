@@ -58,7 +58,7 @@
         "https://*.youtube.com/*"
       ],
       "js": [
-        "src/parsers.js",
+        "src/youtube-parsers.js",
         "src/youtube-main.js"
       ],
       "run_at": "document_start",

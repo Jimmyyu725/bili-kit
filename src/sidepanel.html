@@ -8,35 +8,58 @@
   </head>
   <body data-caption-lite-panel>
     <header class="header">
-      <div class="header-main">
-        <div class="title-line">
-          <h1>字幕列表</h1>
-          <span id="source-badge" class="badge">本地</span>
+      <div class="header-row">
+        <h1>字幕</h1>
+        <span id="count" class="count"></span>
+        <div class="header-controls" aria-label="字幕控制">
+          <span class="select-wrap">
+            <select id="track-select" aria-label="字幕语言" disabled></select>
+          </span>
+          <button id="font-button" class="icon-button text-icon" type="button" title="调整字号" aria-label="调整字号">Aa</button>
+          <button id="refresh-button" class="icon-button" type="button" title="重新读取字幕" aria-label="重新读取字幕"><span data-icon="refresh"></span></button>
+          <button id="settings-button" class="icon-button" type="button" title="设置" aria-label="设置"><span data-icon="settings"></span></button>
+          <button id="collapse-button" class="icon-button collapse-button" type="button" title="折叠字幕" aria-label="折叠字幕" aria-expanded="true"><span data-icon="chevron-up"></span></button>
         </div>
-        <p id="video-title">等待视频</p>
       </div>
-      <div class="header-controls" aria-label="字幕控制">
-        <select id="track-select" aria-label="字幕语言" disabled></select>
-        <button id="refresh-button" type="button" title="重新读取字幕" aria-label="重新读取字幕">↻</button>
-        <button id="collapse-button" class="collapse-button" type="button" title="折叠字幕" aria-label="折叠字幕" aria-expanded="true">⌃</button>
-      </div>
+      <p class="context">
+        <span id="source-badge" class="badge">本地</span>
+        <span id="video-title" class="video-title"></span>
+      </p>
+      <label class="search-field">
+        <span data-icon="search"></span>
+        <input id="search-input" type="search" placeholder="搜索字幕" aria-label="搜索字幕" autocomplete="off" spellcheck="false">
+      </label>
     </header>
 
-    <section class="search-row">
-      <input id="search-input" type="search" placeholder="搜索字幕" aria-label="搜索字幕">
-    </section>
-
-    <div class="meta-row">
-      <p id="status" class="status">打开 YouTube 或 Bilibili 视频后再试。</p>
-      <p id="count" class="count"></p>
-    </div>
-    <main id="caption-list" class="caption-list" aria-live="polite"></main>
+    <main class="body">
+      <div id="banner" class="banner" hidden>
+        <span id="banner-icon" class="banner-icon"></span>
+        <span id="banner-text" class="banner-text"></span>
+        <button id="banner-action" class="text-button" type="button"></button>
+        <span class="progress" aria-hidden="true"><i id="banner-bar"></i></span>
+      </div>
+      <div id="caption-list" class="caption-list"></div>
+      <section id="empty-state" class="empty-state" hidden>
+        <span id="empty-icon" class="empty-icon"></span>
+        <h2 id="empty-title"></h2>
+        <p id="empty-text" class="empty-text"></p>
+        <span id="empty-progress" class="progress" aria-hidden="true" hidden><i id="empty-bar"></i></span>
+        <button id="empty-action" class="primary-button" type="button" hidden></button>
+        <p id="empty-note" class="empty-note"></p>
+      </section>
+      <button id="follow-button" class="follow-button" type="button" hidden>
+        <span id="follow-icon"></span><span>回到当前</span>
+      </button>
+      <p id="toast" class="toast" role="status" aria-live="polite"></p>
+    </main>
 
     <footer class="footer">
-      <button id="copy-comments-button" class="copy-comments-button" type="button" hidden disabled>正在加载评论…</button>
-      <button id="copy-button" type="button" disabled>复制（含时间）</button>
-      <button id="download-srt-button" type="button" disabled>下载 SRT</button>
-      <button id="download-txt-button" type="button" disabled>下载 TXT</button>
+      <div class="action-group" role="group" aria-label="导出字幕">
+        <button id="copy-button" type="button" title="复制字幕（含时间戳）" disabled><span data-icon="copy"></span><span>复制</span></button>
+        <button id="download-srt-button" type="button" title="下载 SRT 字幕文件" disabled><span data-icon="download"></span><span>SRT</span></button>
+        <button id="download-txt-button" type="button" title="下载 TXT 纯文本" disabled><span data-icon="download"></span><span>TXT</span></button>
+      </div>
+      <button id="copy-comments-button" class="copy-comments-button" type="button" hidden disabled><span data-icon="message"></span><span id="copy-comments-label">评论</span></button>
     </footer>
 
     <script src="parsers.js"></script>

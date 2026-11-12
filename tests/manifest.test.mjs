@@ -13,10 +13,13 @@ assert.equal(packageInfo.name, "bili-kit");
 assert.match(manifest.description, /首页推荐回溯/);
 assert.match(manifest.description, /YouTube/);
 assert.equal(manifest.manifest_version, 3);
-assert.equal(manifest.minimum_chrome_version, "114");
+// light-dark() in the panel styles needs Chrome 123.
+assert.equal(manifest.minimum_chrome_version, "123");
 assert.deepEqual(manifest.permissions.sort(), ["clipboardWrite", "sidePanel", "storage", "webNavigation"]);
 assert.ok(!manifest.host_permissions.includes("<all_urls>"));
 assert.ok(!manifest.host_permissions.includes("https://translation.googleapis.com/*"));
+assert.ok(manifest.host_permissions.includes("https://api.openai.com/*"));
+assert.deepEqual(manifest.options_ui, { page: "src/options.html", open_in_tab: true });
 assert.deepEqual(Object.keys(manifest.icons), ["16", "32", "48", "128"]);
 assert.deepEqual(manifest.action.default_icon, {
   "16": "assets/icons/icon-16.png",
@@ -48,6 +51,8 @@ assert.deepEqual(isolatedContent?.js, [
   "src/bilibili-comments.js",
   "src/bilibili-comment-loader.js",
   "src/comment-copy-controller.js",
+  "src/transcribe-core.js",
+  "src/bilibili-transcriber.js",
   "src/sidepanel.js",
   "src/content.js"
 ]);
@@ -65,14 +70,14 @@ assert.match(contentSource, /const danmakuContainer = danmakuBox\.parentElement/
 assert.match(contentSource, /paddedBilibiliContainer = danmakuContainer/);
 assert.match(contentSource, /placeEmbedRoot\(danmakuContainer, height\)/);
 assert.doesNotMatch(contentSource, /document\.querySelector\("\.video-pod"\)/);
-assert.match(contentSource, /const COLLAPSED_PANEL_HEIGHT = 140/);
-assert.match(contentSource, /const BILIBILI_COLLAPSED_PANEL_HEIGHT = 174/);
-assert.match(contentSource, /embeddedPanelCollapsed\s*\? BILIBILI_COLLAPSED_PANEL_HEIGHT/);
-assert.match(contentSource, /embeddedPanelCollapsed\s*\? COLLAPSED_PANEL_HEIGHT/);
+// Collapsed = header (48) + footer (49) + the panel's own border (2).
+assert.match(contentSource, /const COLLAPSED_PANEL_HEIGHT = 99/);
+assert.equal(contentSource.match(/embeddedPanelCollapsed\s*\? COLLAPSED_PANEL_HEIGHT/g)?.length, 2);
 assert.match(contentSource, /function scheduleBilibiliRetry\(pageKey\)/);
 assert.match(contentSource, /bilibiliRetryDelay \* 1\.6/);
 assert.match(contentSource, /BILIBILI_MAX_RETRY_DELAY = 10_000/);
-assert.match(contentSource, /loadBilibili\(true\)/);
+assert.match(contentSource, /loadBilibili\(true, true\)/);
+assert.match(contentSource, /if \(bilibiliSilentRetry\) return;/);
 assert.match(contentSource, /tracks\.length\) resetBilibiliRetry\(identity\.pageKey\)/);
 assert.match(contentSource, /navigator\.clipboard\.writeText/);
 assert.match(contentSource, /CaptionLiteCommentCopy/);
@@ -92,6 +97,22 @@ assert.match(
   /if \(!identity\) \{[\s\S]{0,180}currentBilibiliPageKey = "";[\s\S]{0,180}commentCopyController\.invalidate\(\)/
 );
 assert.doesNotMatch(contentSource, /FETCH_BILIBILI_COMMENTS/);
+
+// AI transcription: the content script drives it, the service worker holds the key.
+assert.match(contentSource, /CaptionLiteBilibiliTranscriber\.transcribe\(\{/);
+assert.match(contentSource, /cache: aiChunkCache/);
+assert.match(contentSource, /label: "AI 转写", captions: aiState\.captions/);
+assert.match(contentSource, /message\?\.type === "START_AI_TRANSCRIBE"\) \{\s*startAiTranscription\(\);/);
+assert.match(contentSource, /message\?\.type === "CANCEL_AI_TRANSCRIBE"\) \{\s*cancelAiTranscription\(\);/);
+assert.match(contentSource, /if \(pageChanged\) restoreAiTranscript\(identity\.pageKey\);/);
+assert.match(contentSource, /saveAiTranscript\(pageKey, result\.captions\)/);
+assert.match(contentSource, /const AI_TRANSCRIPT_LIMIT = 40/);
+assert.match(contentSource, /embeddedPanel\?\.setTheme\(/);
+const transcriberSource = await readFile(resolve(projectRoot, "src/bilibili-transcriber.js"), "utf8");
+for (const source of [contentSource, transcriberSource]) {
+  assert.doesNotMatch(source, /api\.openai\.com|Authorization/);
+}
+assert.match(transcriberSource, /type: "AI_TRANSCRIBE_CHUNK"/);
 assert.doesNotMatch(contentSource, /BILIBILI_COMMENTS_RESULT/);
 assert.match(
   contentSource,
@@ -109,10 +130,21 @@ assert.match(panelSource, /const wheelTarget = embedded && root\.host/);
 assert.match(panelSource, /if \(!embedded \|\| response\?\.state\)/);
 assert.match(panelSource, /atBottom && event\.deltaY > 0/);
 assert.doesNotMatch(panelSource, /elements\.autoScroll/);
-assert.match(panelSource, /pauseAutoScrollTemporarily/);
-assert.match(panelSource, /let autoScrollActive = true/);
-assert.match(panelSource, /autoScrollActive = false/);
-assert.match(panelSource, /highlightCurrentCaption\(true\);\s*\}, 3000\)/);
+// The list follows playback until the user scrolls, and only resumes when asked.
+assert.match(panelSource, /let following = true/);
+assert.match(panelSource, /function stopFollowing\(\) \{\s*if \(!following\) return;\s*following = false;/);
+assert.match(
+  panelSource,
+  /elements\.followButton\.addEventListener\("click", \(\) => \{\s*following = true;\s*highlightCurrentCaption\(true\);/
+);
+assert.doesNotMatch(panelSource, /autoScrollResumeTimer|, 3000\)/);
+assert.match(panelSource, /root\.addEventListener\(type, stopKeys\)/);
+assert.match(panelSource, /elements\.captionList\.scrollTop = scrollTop;/);
+assert.doesNotMatch(panelSource, /innerHTML/);
+assert.match(panelSource, /actionType: "START_AI_TRANSCRIBE"/);
+assert.match(panelSource, /actionType: "CANCEL_AI_TRANSCRIBE"/);
+assert.match(panelSource, /actionType: "OPEN_OPTIONS"/);
+assert.match(panelSource, /const AI_PRICE_PER_MINUTE = 0\.0045/);
 assert.match(panelSource, /onCollapsedChange\?\.\(collapsed\)/);
 assert.match(panelSource, /aria-expanded/);
 assert.match(panelSource, /\[\$\{formatClock\(caption\.startMs\)\}\] \$\{caption\.text\}/);
@@ -148,25 +180,36 @@ const panelMarkup = await readFile(resolve(projectRoot, "src/sidepanel.html"), "
 assert.match(panelMarkup, /<title>Bili Kit<\/title>/);
 assert.doesNotMatch(contentSource, /Caption Lite/);
 assert.doesNotMatch(panelSource, /Caption Lite/);
-assert.match(panelMarkup, /id="copy-comments-button"[^>]*disabled[^>]*>正在加载评论…<\/button>/);
+assert.match(panelMarkup, /id="copy-comments-button"[^>]*hidden disabled>/);
+for (const id of ["follow-button", "empty-action", "banner-action", "font-button", "settings-button", "toast"]) {
+  assert.match(panelMarkup, new RegExp(`id="${id}"`));
+}
 assert.doesNotMatch(panelMarkup, /translate-row|Google 翻译/);
 assert.doesNotMatch(panelMarkup, /auto-scroll|自动跟随/);
-assert.match(panelMarkup, /<h1>字幕列表<\/h1>/);
-assert.match(panelMarkup, /复制（含时间）/);
+assert.match(panelMarkup, /<h1>字幕<\/h1>/);
+assert.match(panelMarkup, /复制字幕（含时间戳）/);
 assert.match(panelMarkup, /id="collapse-button"/);
 assert.match(panelMarkup, /id="copy-comments-button"/);
 
 const panelStyles = await readFile(resolve(projectRoot, "src/sidepanel.css"), "utf8");
-assert.match(panelStyles, /\.caption-row \.text \{ font-size: 17px; \}/);
-assert.match(panelStyles, /font-family: ui-monospace/);
-assert.match(panelStyles, /box-shadow: inset 3px 0 var\(--accent\)/);
-assert.match(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.caption-list/);
-assert.match(panelStyles, /\.copy-comments-button\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/s);
+assert.match(panelStyles, /--caption-size: 16px/);
+assert.match(panelStyles, /\.caption-row \.text \{\s*font-size: var\(--caption-size\);/);
+assert.match(panelStyles, /box-shadow: inset 2px 0 var\(--accent\)/);
+assert.match(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.body/);
+assert.match(panelStyles, /\.caption-lite-app\[data-theme="dark"\] \{ color-scheme: dark; \}/);
+assert.match(panelStyles, /prefers-reduced-motion: reduce/);
 assert.doesNotMatch(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.footer/);
 
 const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-worker.js"), "utf8");
 assert.doesNotMatch(serviceWorkerSource, /TRANSLATE_CAPTIONS|translation\.googleapis\.com|private-config/);
 assert.match(serviceWorkerSource, /COPY_BILIBILI_COMMENTS/);
+assert.match(serviceWorkerSource, /const TRANSCRIBE_MODEL = "gpt-transcribe"/);
+assert.match(
+  serviceWorkerSource,
+  /message\?\.type === "AI_TRANSCRIBE_CHUNK" && sender\.tab\?\.id != null && isBilibiliSender\(sender\)/
+);
+assert.match(serviceWorkerSource, /message\?\.type === "START_AI_TRANSCRIBE"\s*\|\| message\?\.type === "CANCEL_AI_TRANSCRIBE"/);
+assert.match(serviceWorkerSource, /chrome\.runtime\.openOptionsPage\(\)/);
 assert.match(serviceWorkerSource, /COMMENTS_COPY_STATE/);
 assert.match(serviceWorkerSource, /chrome\.webNavigation\.onHistoryStateUpdated/);
 assert.match(serviceWorkerSource, /chrome\.webNavigation\.onCommitted/);
@@ -208,6 +251,9 @@ assert.match(youtubeSource, /setInterval\(\(\) => loadCaptionTracks\(false\), 75
 const referencedFiles = [
   manifest.background.service_worker,
   manifest.side_panel.default_path,
+  manifest.options_ui.page,
+  "src/options.css",
+  "src/options.js",
   ...Object.values(manifest.icons),
   ...Object.values(manifest.action.default_icon),
   ...manifest.content_scripts.flatMap((script) => script.js || [])

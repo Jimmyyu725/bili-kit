@@ -69,6 +69,7 @@
         ...identity,
         status: tracks.length ? "ready" : "empty",
         title: video.title || document.title,
+        duration: Number(page.duration) || 0,
         needLogin: Boolean(player.data?.need_login_subtitle),
         viewPoints: player.data?.view_points || [],
         tracks

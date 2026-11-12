@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Bili Kit",
-  "version": "0.1.0",
-  "description": "Bilibili 轻量工具箱：字幕提取、评论复制、首页推荐回溯与推广过滤，兼容 YouTube 字幕。",
-  "minimum_chrome_version": "114",
+  "version": "0.2.0",
+  "description": "Bilibili 轻量工具箱：字幕提取、AI 转写、评论复制、首页推荐回溯与推广过滤，兼容 YouTube 字幕。",
+  "minimum_chrome_version": "123",
   "permissions": [
     "storage",
     "sidePanel",
@@ -14,7 +14,8 @@
     "https://*.youtube.com/*",
     "https://*.bilibili.com/*",
     "https://api.bilibili.com/*",
-    "https://*.hdslb.com/*"
+    "https://*.hdslb.com/*",
+    "https://api.openai.com/*"
   ],
   "icons": {
     "16": "assets/icons/icon-16.png",
@@ -34,6 +35,10 @@
   },
   "side_panel": {
     "default_path": "src/sidepanel.html"
+  },
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
   },
   "web_accessible_resources": [
     {
@@ -79,6 +84,8 @@
         "src/bilibili-comments.js",
         "src/bilibili-comment-loader.js",
         "src/comment-copy-controller.js",
+        "src/transcribe-core.js",
+        "src/bilibili-transcriber.js",
         "src/sidepanel.js",
         "src/content.js"
       ],

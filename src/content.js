@@ -41,9 +41,21 @@
   let originalBilibiliPaddingTop = "";
   let paddedYouTubeSidebar = null;
   let originalSidebarPaddingTop = "";
-  const COLLAPSED_PANEL_HEIGHT = 140;
-  const BILIBILI_COLLAPSED_PANEL_HEIGHT = 174;
+  let embeddedTheme = "";
+  // What Bilibili itself offers for the current page, before AI captions are merged in.
+  let bilibiliBase = null;
+  let bilibiliSilentRetry = false;
+  let aiState = { status: "idle", progress: 0, message: "", captions: [] };
+  let aiController = null;
+  let aiChunkCache = new Map();
+  let aiPublishTimer = null;
+  const COLLAPSED_PANEL_HEIGHT = 99;
   const BILIBILI_MAX_RETRY_DELAY = 10_000;
+  const AI_TRACK_ID = "ai:gpt-transcribe";
+  const AI_TRANSCRIPT_PREFIX = "ai-transcript:";
+  const AI_TRANSCRIPT_INDEX = "ai-transcript-index";
+  const AI_TRANSCRIPT_LIMIT = 40;
+  const AI_PUBLISH_INTERVAL = 800;
 
   function sendRuntimeMessage(message) {
     if (!chrome.runtime?.id) return Promise.resolve();
@@ -138,6 +150,127 @@
     publishState: publishCommentCopyState
   });
 
+  function publishBilibili() {
+    if (!bilibiliBase) return Promise.resolve();
+    const tracks = aiState.captions.length
+      ? [...bilibiliBase.tracks, { id: AI_TRACK_ID, language: "ai", label: "AI 转写", captions: aiState.captions }]
+      : bilibiliBase.tracks;
+    return publishState({
+      ...bilibiliBase,
+      status: tracks.length ? "ready" : bilibiliBase.status,
+      message: tracks.length ? "" : bilibiliBase.message,
+      tracks,
+      ai: {
+        status: aiState.status,
+        progress: aiState.progress,
+        message: aiState.message,
+        durationSeconds: bilibiliBase.durationSeconds || 0
+      }
+    });
+  }
+
+  function setAi(patch) {
+    clearTimeout(aiPublishTimer);
+    aiPublishTimer = null;
+    aiState = { ...aiState, ...patch };
+    return publishBilibili();
+  }
+
+  function resetAi() {
+    aiController?.abort();
+    aiController = null;
+    clearTimeout(aiPublishTimer);
+    aiPublishTimer = null;
+    aiChunkCache = new Map();
+    aiState = { status: "idle", progress: 0, message: "", captions: [] };
+    bilibiliBase = null;
+  }
+
+  // Finished transcripts are kept locally so reopening a video costs nothing.
+  async function restoreAiTranscript(pageKey) {
+    const key = `${AI_TRANSCRIPT_PREFIX}${pageKey}`;
+    const stored = await chrome.storage.local.get(key).catch(() => ({}));
+    const captions = stored[key]?.captions;
+    if (!Array.isArray(captions) || !captions.length) return;
+    if (currentBilibiliPageKey !== pageKey || aiState.status !== "idle") return;
+    setAi({ status: "done", progress: 1, captions });
+  }
+
+  async function saveAiTranscript(pageKey, captions) {
+    const key = `${AI_TRANSCRIPT_PREFIX}${pageKey}`;
+    const stored = await chrome.storage.local.get(AI_TRANSCRIPT_INDEX);
+    const known = Array.isArray(stored[AI_TRANSCRIPT_INDEX]) ? stored[AI_TRANSCRIPT_INDEX] : [];
+    const index = [...known.filter((item) => item !== key), key];
+    const expired = index.splice(0, Math.max(0, index.length - AI_TRANSCRIPT_LIMIT));
+    await chrome.storage.local.remove(expired);
+    await chrome.storage.local.set({
+      [key]: { captions, savedAt: Date.now() },
+      [AI_TRANSCRIPT_INDEX]: index
+    });
+  }
+
+  async function startAiTranscription() {
+    const identity = getBilibiliIdentity();
+    if (!identity || aiState.status === "running" || aiState.status === "done") return;
+    const { pageKey } = identity;
+    const controller = new AbortController();
+    aiController = controller;
+    const isCurrent = () => aiController === controller && getBilibiliIdentity()?.pageKey === pageKey;
+
+    const response = await sendRuntimeMessage({ type: "AI_HAS_KEY" });
+    if (!isCurrent()) return;
+    if (!response?.hasKey) {
+      setAi({ status: "needs-key", message: "" });
+      sendRuntimeMessage({ type: "OPEN_OPTIONS" });
+      return;
+    }
+
+    setAi({ status: "running", message: aiState.captions.length ? "" : "正在读取音频…" });
+    try {
+      const result = await globalThis.CaptionLiteBilibiliTranscriber.transcribe({
+        videoId: identity.videoId,
+        pageNumber: identity.pageNumber,
+        signal: controller.signal,
+        cache: aiChunkCache,
+        onProgress: ({ doneSeconds, totalSeconds, captions }) => {
+          if (!isCurrent()) return;
+          aiState = {
+            ...aiState,
+            progress: totalSeconds ? doneSeconds / totalSeconds : 0,
+            message: doneSeconds ? "" : "正在读取音频…",
+            captions
+          };
+          aiPublishTimer ||= setTimeout(() => {
+            aiPublishTimer = null;
+            publishBilibili();
+          }, AI_PUBLISH_INTERVAL);
+        }
+      });
+      if (!isCurrent()) return;
+      if (!result.captions.length) {
+        setAi({ status: "error", progress: 0, message: "没有识别到语音内容。" });
+        return;
+      }
+      setAi({ status: "done", progress: 1, message: "", captions: result.captions });
+      saveAiTranscript(pageKey, result.captions).catch(() => {});
+    } catch (error) {
+      if (!isCurrent() || controller.signal.aborted) return;
+      const needsKey = error?.code === "NO_KEY" || error?.code === "BAD_KEY";
+      setAi({
+        status: needsKey ? "needs-key" : "error",
+        message: error instanceof Error ? error.message : "未知错误"
+      });
+      if (needsKey) sendRuntimeMessage({ type: "OPEN_OPTIONS" });
+    }
+  }
+
+  function cancelAiTranscription() {
+    if (aiState.status !== "running") return;
+    aiController?.abort();
+    aiController = null;
+    setAi({ status: aiState.captions.length ? "paused" : "idle", message: "" });
+  }
+
   function resetBilibiliRetry(pageKey = "") {
     clearTimeout(bilibiliRetryTimer);
     bilibiliRetryTimer = null;
@@ -152,23 +285,27 @@
       bilibiliRetryTimer = null;
       if (getBilibiliIdentity()?.pageKey !== pageKey) return;
       bilibiliRetryDelay = Math.min(Math.round(bilibiliRetryDelay * 1.6), BILIBILI_MAX_RETRY_DELAY);
-      loadBilibili(true);
+      loadBilibili(true, true);
     }, bilibiliRetryDelay);
   }
 
-  function loadBilibili(force = false) {
+  // `silent` re-checks for captions in the background without disturbing the panel.
+  function loadBilibili(force = false, silent = false) {
     const identity = getBilibiliIdentity();
     if (!identity) {
       resetBilibiliRetry();
       if (currentBilibiliPageKey) {
         currentBilibiliPageKey = "";
         commentCopyController.invalidate();
+        resetAi();
       }
       return;
     }
     if (!force && identity.pageKey === currentBilibiliPageKey) return;
-    if (identity.pageKey !== currentBilibiliPageKey) {
+    const pageChanged = identity.pageKey !== currentBilibiliPageKey;
+    if (pageChanged) {
       commentCopyController.invalidate();
+      resetAi();
     }
     if (identity.pageKey !== bilibiliRetryPageKey) resetBilibiliRetry(identity.pageKey);
     clearTimeout(bilibiliRetryTimer);
@@ -181,13 +318,18 @@
       }).catch(() => {});
     });
 
-    publishState({
-      source: "bilibili",
-      videoId: identity.videoId,
-      status: "loading",
-      message: "正在读取 Bilibili 字幕……",
-      tracks: []
-    });
+    bilibiliSilentRetry = silent && Boolean(bilibiliBase);
+    if (!bilibiliSilentRetry) {
+      bilibiliBase = {
+        source: "bilibili",
+        videoId: identity.videoId,
+        status: "loading",
+        message: "正在读取 Bilibili 字幕……",
+        tracks: []
+      };
+      publishBilibili();
+    }
+    if (pageChanged) restoreAiTranscript(identity.pageKey);
     window.postMessage({ source: EXTENSION_SOURCE, type: "LOAD_BILIBILI" }, "*");
   }
 
@@ -196,25 +338,29 @@
     if (!identity || payload?.pageKey !== identity.pageKey) return;
 
     if (payload.status === "loading") {
-      await publishState({
+      if (bilibiliSilentRetry) return;
+      bilibiliBase = {
         source: "bilibili",
         videoId: identity.videoId,
         status: "loading",
         message: "正在读取 Bilibili 字幕……",
         tracks: []
-      });
+      };
+      await publishBilibili();
       return;
     }
 
     if (payload.status === "error") {
-      await publishState({
+      scheduleBilibiliRetry(identity.pageKey);
+      if (bilibiliSilentRetry) return;
+      bilibiliBase = {
         source: "bilibili",
         videoId: identity.videoId,
         status: "error",
         message: `字幕读取失败，正在自动重试：${String(payload.error || "未知错误")}`,
         tracks: []
-      });
-      scheduleBilibiliRetry(identity.pageKey);
+      };
+      await publishBilibili();
       return;
     }
 
@@ -240,7 +386,7 @@
     const status = tracks.length ? "ready" : "empty";
     if (tracks.length) resetBilibiliRetry(identity.pageKey);
     else scheduleBilibiliRetry(identity.pageKey);
-    await publishState({
+    bilibiliBase = {
       source: "bilibili",
       videoId: identity.videoId,
       status,
@@ -253,8 +399,11 @@
             : "暂未发现字幕，正在自动重试……",
       title: String(payload.title || document.title),
       chapters: parseBilibiliChapters(payload.viewPoints).slice(0, 100),
-      tracks
-    });
+      tracks,
+      needLogin: Boolean(payload.needLogin),
+      durationSeconds: Math.max(0, Number(payload.duration) || 0)
+    };
+    await publishBilibili();
   }
 
   function handleYouTubeCaptionMessage(payload) {
@@ -450,9 +599,7 @@
       "z-index:20",
       "pointer-events:auto",
       "overflow:hidden",
-      "border:1px solid rgba(127,127,127,.25)",
-      "border-radius:8px",
-      "background:#10131a"
+      "border-radius:10px"
     ].join(";");
     return root;
   }
@@ -496,9 +643,31 @@
         mountSitePanel();
       }
     });
+    embeddedTheme = detectPageTheme();
+    embeddedPanel?.setTheme(embeddedTheme);
     if (latestState) embeddedPanel?.setState(latestState);
     embeddedPanel?.setPlayback(latestPlaybackMs);
     embeddedPanel?.setCommentCopyState(latestCommentCopyState);
+  }
+
+  // The embedded panel matches the site's own light or dark mode.
+  function detectPageTheme() {
+    if (location.hostname.endsWith("youtube.com")) {
+      return document.documentElement.hasAttribute("dark") ? "dark" : "light";
+    }
+    for (const element of [document.body, document.documentElement]) {
+      const parts = element && getComputedStyle(element).backgroundColor.match(/[\d.]+/g)?.map(Number);
+      if (!parts || (parts.length > 3 && parts[3] < 0.5)) continue;
+      return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2] < 128 ? "dark" : "light";
+    }
+    return "";
+  }
+
+  function syncEmbeddedTheme() {
+    const theme = detectPageTheme();
+    if (theme === embeddedTheme) return;
+    embeddedTheme = theme;
+    embeddedPanel?.setTheme(theme);
   }
 
   function mountBilibiliPanel() {
@@ -528,7 +697,7 @@
     const updateHeight = () => {
       if (!embedRoot?.isConnected) return;
       const height = embeddedPanelCollapsed
-        ? BILIBILI_COLLAPSED_PANEL_HEIGHT
+        ? COLLAPSED_PANEL_HEIGHT
         : Math.max(360, player.getBoundingClientRect().height);
 
       if (paddedBilibiliContainer !== danmakuContainer) {
@@ -647,6 +816,18 @@
       return;
     }
 
+    if (message?.type === "START_AI_TRANSCRIBE") {
+      startAiTranscription();
+      sendResponse({ success: true });
+      return;
+    }
+
+    if (message?.type === "CANCEL_AI_TRANSCRIBE") {
+      cancelAiTranscription();
+      sendResponse({ success: true });
+      return;
+    }
+
     if (message?.type === "COPY_BILIBILI_COMMENTS") {
       commentCopyController.copyCurrent().catch((error) => {
         publishCommentCopyState({
@@ -659,6 +840,13 @@
     }
   });
 
+  // Saving a key on the settings page resumes the transcription that asked for it.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.openaiApiKey?.newValue && aiState.status === "needs-key") {
+      startAiTranscription();
+    }
+  });
+
   handleNavigation(true);
   window.postMessage({ source: EXTENSION_SOURCE, type: "READY" }, "*");
   bindVideo();
@@ -667,6 +855,7 @@
   setInterval(() => {
     bindVideo();
     mountSitePanel();
+    syncEmbeddedTheme();
     if (location.href !== lastUrl) {
       lastUrl = location.href;
       handleNavigation(false);

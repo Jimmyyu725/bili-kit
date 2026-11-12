@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bili Kit 设置</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <h1>Bili Kit 设置</h1>
+      </header>
+
+      <section class="card" aria-labelledby="ai-title">
+        <h2 id="ai-title">AI 转写</h2>
+        <p class="lead">
+          没有字幕的 Bilibili 视频，可以用 OpenAI 的 <code>gpt-transcribe</code> 把语音转写成带时间轴的字幕。
+        </p>
+
+        <form id="key-form" autocomplete="off">
+          <label for="api-key">OpenAI API Key</label>
+          <div class="field">
+            <input id="api-key" type="password" placeholder="sk-…" spellcheck="false" autocomplete="off">
+            <button id="toggle-button" class="ghost" type="button" aria-pressed="false">显示</button>
+          </div>
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+          <div class="actions">
+            <button id="save-button" class="primary" type="submit">保存并验证</button>
+            <button id="clear-button" class="ghost" type="button">清除</button>
+          </div>
+        </form>
+
+        <ul class="notes">
+          <li>Key 只保存在这个浏览器的扩展存储里，不会同步，视频网页的脚本读不到它。</li>
+          <li>转写时，视频的音频和标题、简介会从你的浏览器直接发送给 OpenAI。</li>
+          <li>按音频时长计费，约 $0.0045 / 分钟（一小时约 $0.27），以 OpenAI 账单为准。</li>
+          <li>转写结果保存在本机，重新打开同一个视频不会再次计费。</li>
+        </ul>
+        <p class="link">
+          <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">在 OpenAI 控制台创建 API Key</a>
+        </p>
+      </section>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

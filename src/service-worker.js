@@ -5,6 +5,10 @@ importScripts("parsers.js");
 const STATE_PREFIX = "caption-state:";
 const COMMENT_STATE_PREFIX = "comment-copy-state:";
 
+const TRANSCRIBE_MODEL = "gpt-transcribe";
+const TRANSCRIBE_URL = "https://api.openai.com/v1/audio/transcriptions";
+const API_KEY_STORAGE = "openaiApiKey";
+
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
 function stateKey(tabId) {
@@ -38,7 +42,76 @@ async function getActiveTab() {
   return tab || null;
 }
 
+async function getApiKey() {
+  const stored = await chrome.storage.local.get(API_KEY_STORAGE);
+  return String(stored[API_KEY_STORAGE] || "").trim();
+}
+
+// Sends one audio slice (base64 fragmented MP4) to OpenAI. The API key never
+// leaves the service worker.
+async function transcribeChunk(message) {
+  try {
+    const apiKey = await getApiKey();
+    if (!apiKey) return { success: false, code: "NO_KEY", error: "尚未设置 OpenAI API Key" };
+    const binary = atob(String(message.audio || ""));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    const form = new FormData();
+    form.append("file", new Blob([bytes], { type: "audio/mp4" }), "audio.m4a");
+    form.append("model", TRANSCRIBE_MODEL);
+    if (message.prompt) form.append("prompt", String(message.prompt).slice(0, 1000));
+    const response = await fetch(TRANSCRIBE_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) return { success: true, text: String(data?.text || "") };
+    const outOfQuota = data?.error?.code === "insufficient_quota";
+    return {
+      success: false,
+      code: response.status === 401 ? "BAD_KEY" : `HTTP_${response.status}`,
+      retryable: !outOfQuota && (response.status === 408 || response.status === 429 || response.status >= 500),
+      error: response.status === 401
+        ? "OpenAI API Key 无效"
+        : outOfQuota
+          ? "OpenAI 账户额度不足"
+          : data?.error?.message || `OpenAI HTTP ${response.status}`
+    };
+  } catch (error) {
+    return { success: false, code: "NETWORK", retryable: true, error: `无法连接 OpenAI：${error.message}` };
+  }
+}
+
+function isBilibiliSender(sender) {
+  try {
+    const { protocol, hostname } = new URL(sender.url || "");
+    return protocol === "https:" && (hostname === "bilibili.com" || hostname.endsWith(".bilibili.com"));
+  } catch {
+    return false;
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "AI_TRANSCRIBE_CHUNK" && sender.tab?.id != null && isBilibiliSender(sender)) {
+    transcribeChunk(message).then(sendResponse);
+    return true;
+  }
+
+  if (message?.type === "AI_HAS_KEY") {
+    getApiKey()
+      .then((apiKey) => sendResponse({ hasKey: Boolean(apiKey) }))
+      .catch(() => sendResponse({ hasKey: false }));
+    return true;
+  }
+
+  if (message?.type === "OPEN_OPTIONS") {
+    chrome.runtime.openOptionsPage()
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "CAPTIONS_UPDATED" && sender.tab?.id != null) {
     const tabId = sender.tab.id;
     chrome.storage.session.set({ [stateKey(tabId)]: message.state })
@@ -96,7 +169,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if ((message?.type === "SEEK"
       || message?.type === "REFRESH_CAPTIONS"
-      || message?.type === "COPY_BILIBILI_COMMENTS")
+      || message?.type === "COPY_BILIBILI_COMMENTS"
+      || message?.type === "START_AI_TRANSCRIBE"
+      || message?.type === "CANCEL_AI_TRANSCRIBE")
       && Number.isInteger(message.tabId)) {
     chrome.tabs.sendMessage(message.tabId, message)
       .then((response) => sendResponse(response || { success: true }))

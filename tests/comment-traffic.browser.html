@@ -1,0 +1,66 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Bili Kit 评论流量浏览器测试</title>
+<style>body{font:15px system-ui;margin:24px;background:#f4f6f8;color:#172033}#panel{width:360px;height:650px;float:right;border:1px solid #aaa;border-radius:8px;overflow:hidden}pre{white-space:pre-wrap;max-width:700px}</style>
+<h1>评论流量浏览器回归测试</h1><div id="panel"></div><pre id="result">Running…</pre>
+<script src="../src/parsers.js"></script><script src="../src/comment-traffic.js"></script><script src="../src/sidepanel.js"></script>
+<script>
+(async()=>{
+ const out=document.querySelector('#result');let checks=0;
+ const check=(condition,name)=>{if(!condition)throw Error(name);checks++;out.textContent+='\nPASS '+name;};
+ const state={source:'bilibili',title:'流量统计测试视频',status:'ready',tracks:[]};
+ window.chrome={runtime:{sendMessage:async()=>({success:true,tabId:1,state}),onMessage:{addListener(){},removeListener(){}}}};
+ const html=await (await fetch('../src/sidepanel.html')).text();
+ const css=await (await fetch('../src/sidepanel.css')).text();
+ const parsed=new DOMParser().parseFromString(html,'text/html');
+ const root=document.querySelector('#panel').attachShadow({mode:'open'});
+ const style=document.createElement('style');style.textContent=css;
+ const app=document.createElement('div');app.className='caption-lite-app embedded';
+ for(const child of parsed.body.children)if(child.tagName!=='SCRIPT')app.append(document.importNode(child,true));
+ root.append(style,app);
+ const panel=CaptionLitePanel.mount(root,{embedded:true});
+ panel.setState(state);
+ panel.setCommentCopyState({status:'complete',count:1,canCopy:true,traffic:{requests:1,completed:1,decodedBytes:100}});
+ await new Promise(r=>setTimeout(r,0));
+ const initialTrafficPreserved=!root.querySelector('#comment-traffic').hidden;
+ let stats; const update=value=>{stats=value;panel.setCommentCopyState({status:'loading',count:12,canCopy:true,traffic:value});};
+ try{
+  out.textContent='Browser integration';
+  check(initialTrafficPreserved,'late initialization cannot clear embedded traffic');
+  const measured=CaptionLiteCommentTraffic.createMeasuredFetch(fetch,update);
+  const gzip=await measured(location.origin+'/meter/gzip?run='+Date.now());
+  const value=await gzip.json();
+  const expected=new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  check(stats.decodedBytes===expected,'UTF-8 decoded bytes match real gzip response');
+  check(stats.measuredRequests===1 && stats.transferBytes>0 && stats.transferBytes<expected,'compressed transfer differs from decoded body');
+  check(root.querySelector('#comment-traffic').textContent.includes('评论传输'),'panel displays browser-reported transfer size');
+  const host=location.hostname==='127.0.0.1'?'localhost':'127.0.0.1';
+  const before=stats.decodedBytes;
+  const cross=await measured(location.protocol+'//'+host+':'+location.port+'/meter/gzip?cross='+Date.now());
+  const crossValue=await cross.json();
+  check(stats.decodedBytes===before+new TextEncoder().encode(JSON.stringify(crossValue)).byteLength,'cross-origin payload bytes counted');
+  check(stats.requests===2 && stats.measuredRequests===1,'cross-origin zero timing is unknown, not a cache hit');
+  check(root.querySelector('#comment-traffic').textContent.includes('解压后'),'mixed visibility uses explicitly labelled decoded total');
+  const failed=await measured(location.origin+'/meter/fail?run='+Date.now());await failed.json();
+  check(stats.failedRequests===1 && stats.requests===3,'HTTP error body and request included');
+  const saved={...stats};
+  panel.setCommentCopyState({status:'complete',count:12,canCopy:true,complete:true,traffic:stats});
+  check(root.querySelector('#comment-traffic').textContent.includes('3 次请求'),'completed state retains counters');
+  root.querySelector('#copy-comments-button').click();await new Promise(r=>setTimeout(r,0));
+  check(stats.requests===saved.requests && stats.decodedBytes===saved.decodedBytes,'copy action does not issue metered requests');
+  check(root.querySelector('#copy-comments-button').title.includes('解压后'),'collapsed copy button has detailed tooltip');
+  root.querySelector('#collapse-button').click();
+  check(getComputedStyle(root.querySelector('.meta-row')).display==='none','collapse preserves compact panel');
+  root.querySelector('#collapse-button').click();
+  panel.setState({...state,source:'youtube'});
+  check(root.querySelector('#comment-traffic').hidden,'YouTube does not show Bilibili traffic');
+  panel.setState(state);panel.setCommentCopyState({status:'idle'});
+  check(root.querySelector('#comment-traffic').hidden,'fresh job clears prior metrics');
+  panel.setCommentCopyState({status:'complete',count:12,canCopy:true,complete:true,traffic:saved});
+  const cacheStats=[];
+  const cached=CaptionLiteCommentTraffic.createMeasuredFetch(fetch,v=>cacheStats.push(v));
+  const cacheUrl=location.origin+'/meter/cache?run='+Date.now();
+  await (await cached(cacheUrl)).json();await (await cached(cacheUrl,{cache:'force-cache'})).json();
+  check(cacheStats.at(-1).cachedRequests===1 && cacheStats.at(-1).requests===2,'real browser cache hit has zero transferred bytes');
+  out.textContent+='\nALL '+checks+' CHECKS PASSED\n'+JSON.stringify(saved,null,2);
+ }catch(error){out.textContent+='\nFAIL '+error.message;throw error;}
+})();
+</script></html>

@@ -67,6 +67,7 @@
       emptyBar: root.querySelector("#empty-bar"),
       emptyAction: root.querySelector("#empty-action"),
       emptyNote: root.querySelector("#empty-note"),
+      commentTraffic: root.querySelector("#comment-traffic"),
       followButton: root.querySelector("#follow-button"),
       followIcon: root.querySelector("#follow-icon"),
       toast: root.querySelector("#toast"),
@@ -154,11 +155,15 @@
     function renderCommentCopyButton() {
       const visible = currentState?.source === "bilibili";
       elements.copyCommentsButton.hidden = !visible;
+      const traffic = globalThis.CaptionLiteCommentTraffic.describe(commentCopyState.traffic);
+      elements.commentTraffic.hidden = !visible || !commentCopyState.traffic;
+      elements.commentTraffic.textContent = traffic.text;
+      elements.commentTraffic.title = traffic.title;
       if (!visible) return;
       const loading = !commentCopyState.complete && !commentCopyState.limitReached
         && commentCopyState.status !== "error";
       elements.copyCommentsButton.disabled = activeTabId == null || !commentCopyState.canCopy;
-      elements.copyCommentsButton.title = getCommentCopyButtonLabel();
+      elements.copyCommentsButton.title = [getCommentCopyButtonLabel(), traffic.title].filter(Boolean).join("\n\n");
       elements.copyCommentsButton.setAttribute("aria-label", `评论：${getCommentCopyButtonLabel()}`);
       elements.copyCommentsLabel.textContent = commentCopyState.count > 0
         ? `评论 ${commentCopyState.count}${commentCopyState.limitReached ? "+" : ""}`
@@ -176,7 +181,8 @@
         canCopy: Boolean(value.canCopy),
         canRetry: Boolean(value.canRetry),
         complete: Boolean(value.complete),
-        limitReached: Boolean(value.limitReached)
+        limitReached: Boolean(value.limitReached),
+        traffic: globalThis.CaptionLiteCommentTraffic.normalize(value.traffic)
       };
     }
 
@@ -571,7 +577,7 @@
     async function loadActiveState() {
       const response = await sendMessage({ type: "GET_ACTIVE_STATE" });
       activeTabId = response?.tabId ?? null;
-      commentCopyState = normalizeCommentCopyState(response?.commentCopyState);
+      if (!embedded) commentCopyState = normalizeCommentCopyState(response?.commentCopyState);
       if (!embedded || response?.state) {
         currentState = response?.state ?? null;
         renderState();

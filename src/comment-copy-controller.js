@@ -7,18 +7,22 @@
     let latestSnapshot = null;
     let latestStatus = "idle";
     let copyToken = 0;
+    let traffic = null;
+    let lastState = {};
 
     function emit(state) {
       latestStatus = state?.status || "idle";
-      return publishState({
+      lastState = {
         status: latestStatus,
         count: Math.max(0, Number(state?.count) || 0),
         message: String(state?.message || ""),
         canCopy: Boolean(state?.canCopy),
         canRetry: Boolean(state?.canRetry),
         complete: Boolean(state?.complete),
-        limitReached: Boolean(state?.limitReached)
-      });
+        limitReached: Boolean(state?.limitReached),
+        ...(traffic ? { traffic: { ...traffic } } : {})
+      };
+      return publishState(lastState);
     }
 
     function cancelActiveJob() {
@@ -63,6 +67,12 @@
           : `正在加载评论：${snapshot.count} 条`
       });
       return true;
+    }
+
+    function acceptTraffic(job, value) {
+      if (!isCurrentJob(job)) return;
+      traffic = globalThis.CaptionLiteCommentTraffic.normalize(value);
+      emit(lastState);
     }
 
     function acceptRetry(job) {
@@ -113,6 +123,7 @@
 
       cancelActiveJob();
       latestSnapshot = null;
+      traffic = null;
       const abortController = new AbortController();
       const job = {
         abortController,
@@ -127,7 +138,8 @@
         .then(() => loadComments(pageKey, {
           signal: abortController.signal,
           onSnapshot: (value) => acceptSnapshot(job, value),
-          onRetry: () => acceptRetry(job)
+          onRetry: () => acceptRetry(job),
+          onTraffic: (value) => acceptTraffic(job, value)
         }))
         .catch((error) => ({
           pageKey,
@@ -207,6 +219,7 @@
       generation += 1;
       cancelActiveJob();
       latestSnapshot = null;
+      traffic = null;
       emit({ status: "idle" });
     }
 

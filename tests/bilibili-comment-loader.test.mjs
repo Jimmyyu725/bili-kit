@@ -6,6 +6,7 @@ import vm from "node:vm";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const helperSource = await readFile(resolve(projectRoot, "src/bilibili-comments.js"), "utf8");
+const trafficSource = await readFile(resolve(projectRoot, "src/comment-traffic.js"), "utf8");
 const loaderSource = await readFile(resolve(projectRoot, "src/bilibili-comment-loader.js"), "utf8");
 const wbiImage = {
   img_url: "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png",
@@ -29,6 +30,7 @@ function createLoader() {
     URLSearchParams
   });
   vm.runInContext(helperSource, context, { filename: "bilibili-comments.js" });
+  vm.runInContext(trafficSource, context, { filename: "comment-traffic.js" });
   vm.runInContext(loaderSource, context, { filename: "bilibili-comment-loader.js" });
   return context.CaptionLiteBilibiliCommentLoader;
 }
@@ -636,6 +638,45 @@ function createLoader() {
   ]);
   assert.equal(snapshots.filter((snapshot) => snapshot.complete && snapshot.limitReached).length, 1);
   assert.ok(snapshots.every((snapshot) => snapshot.count <= 500));
+}
+
+
+
+// Include view/nav, the failed attempt, root comments and child replies exactly once.
+{
+  const loader = createLoader();
+  const payloads = [];
+  let rootAttempts = 0;
+  let traffic;
+  const result = await loader.loadAllComments({
+    pageKey: "traffic:1", videoId: "BVtraffic",
+    wait: async () => true,
+    onTraffic: (value) => { traffic = value; },
+    fetchImpl: async (input) => {
+      const path = new URL(String(input)).pathname;
+      let data, status = 200;
+      if (path.endsWith('/view')) data = { code: 0, data: { aid: 123 } };
+      else if (path.endsWith('/nav')) data = { code: -101, data: { wbi_img: wbiImage } };
+      else if (path.endsWith('/wbi/main')) {
+        if (rootAttempts++ === 0) { status = 429; data = { message: "retry" }; }
+        else data = { code: 0, data: { cursor: { is_end: true }, replies: [
+          { rpid: 1, member: { uname: "根" }, content: { message: "中文🙂" }, rcount: 1 }
+        ] } };
+      } else data = { code: 0, data: { page: { count: 1 }, replies: [
+        { rpid: 2, member: { uname: "子" }, content: { message: "reply" } }
+      ] } };
+      const body = JSON.stringify(data);
+      payloads.push(body);
+      return new Response(body, { status });
+    }
+  });
+  assert.equal(result.complete, true);
+  assert.equal(result.count, 2);
+  assert.equal(traffic.requests, 5);
+  assert.equal(traffic.completed, 5);
+  assert.equal(traffic.failedRequests, 1);
+  assert.equal(traffic.decodedBytes, payloads.reduce((sum, text) => sum + new TextEncoder().encode(text).byteLength, 0));
+  assert.equal(traffic.measuredRequests, 0);
 }
 
 console.log("Bilibili comment loader checks passed.");

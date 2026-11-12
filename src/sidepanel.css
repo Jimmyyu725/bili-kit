@@ -508,6 +508,20 @@ mark {
 .spin { animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Data used by this video's comment requests, below the list */
+
+.comment-traffic {
+  margin: 0;
+  padding: 5px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Floating controls */
 
 .follow-button {

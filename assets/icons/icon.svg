@@ -1,0 +1,22 @@
+<svg viewBox="0 0 1536 1536" xmlns="http://www.w3.org/2000/svg" width="1536" height="1536">
+  <defs>
+    <linearGradient id="tile-gradient" x1="108" y1="108" x2="1428" y2="1428" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#19C2FF" />
+      <stop offset="1" stop-color="#0088E8" />
+    </linearGradient>
+  </defs>
+  <g id="tile">
+    <path fill="url(#tile-gradient)" d="M468 108H1068C1298 108 1428 238 1428 468V1068C1428 1298 1298 1428 1068 1428H468C238 1428 108 1298 108 1068V468C108 238 238 108 468 108Z" />
+  </g>
+  <g id="caption">
+    <rect x="268" y="483" width="1000" height="570" rx="180" fill="#FFFFFF" />
+    <g id="subtitle-lines" fill="url(#tile-gradient)">
+      <rect x="372" y="643" width="728" height="104" rx="52" />
+      <rect x="372" y="809" width="486" height="104" rx="52" />
+    </g>
+  </g>
+  <g id="sparkle">
+    <path d="M1148 313C1169 420 1211 462 1318 483C1211 504 1169 546 1148 653C1127 546 1085 504 978 483C1085 462 1127 420 1148 313Z" fill="url(#tile-gradient)" stroke="url(#tile-gradient)" stroke-width="28" stroke-linejoin="round" />
+    <path d="M1148 313C1169 420 1211 462 1318 483C1211 504 1169 546 1148 653C1127 546 1085 504 978 483C1085 462 1127 420 1148 313Z" fill="#FF6699" />
+  </g>
+</svg>

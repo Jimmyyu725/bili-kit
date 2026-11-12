@@ -166,8 +166,8 @@
       elements.copyCommentsButton.title = [getCommentCopyButtonLabel(), traffic.title].filter(Boolean).join("\n\n");
       elements.copyCommentsButton.setAttribute("aria-label", `评论：${getCommentCopyButtonLabel()}`);
       elements.copyCommentsLabel.textContent = commentCopyState.count > 0
-        ? `评论 ${commentCopyState.count}${commentCopyState.limitReached ? "+" : ""}`
-        : "评论";
+        ? `复制评论 ${commentCopyState.count}${commentCopyState.limitReached ? "+" : ""}`
+        : "复制评论";
       const iconHolder = elements.copyCommentsButton.querySelector("[data-icon]");
       if (iconHolder) setIcon(iconHolder, loading ? "loader" : "message", loading);
     }
@@ -581,6 +581,9 @@
       if (!embedded || response?.state) {
         currentState = response?.state ?? null;
         renderState();
+      } else {
+        // The comment button is only usable once the tab id is known.
+        renderCommentCopyButton();
       }
     }
 
@@ -623,10 +626,18 @@
     });
     elements.captionList.addEventListener("scroll", renderFollowButton, { passive: true });
 
-    // Keep the site's own keyboard shortcuts from firing while typing in the panel.
-    const stopKeys = (event) => event.stopPropagation();
     if (embedded) {
+      // Typing in the panel must not trigger the site's keyboard shortcuts...
+      const stopKeys = (event) => {
+        if (event.composedPath()[0]?.matches?.("input, select, textarea")) event.stopPropagation();
+      };
       ["keydown", "keyup", "keypress"].forEach((type) => root.addEventListener(type, stopKeys));
+      // ...and a clicked button must not keep the keyboard: Space should still
+      // pause the video rather than press that button again. Keyboard
+      // activation (detail 0) keeps its focus.
+      root.addEventListener("click", (event) => {
+        if (event.detail > 0) event.target.closest?.("button")?.blur();
+      });
     }
 
     elements.searchInput.addEventListener("input", renderCaptions);

@@ -149,6 +149,10 @@ assert.match(
 );
 assert.doesNotMatch(panelSource, /autoScrollResumeTimer|, 3000\)/);
 assert.match(panelSource, /root\.addEventListener\(type, stopKeys\)/);
+// Only text entry swallows keys; a clicked button gives the keyboard back to the player.
+assert.match(panelSource, /matches\?\.\("input, select, textarea"\)\) event\.stopPropagation\(\)/);
+assert.match(panelSource, /if \(event\.detail > 0\) event\.target\.closest\?\.\("button"\)\?\.blur\(\);/);
+assert.match(panelSource, /`复制评论 \$\{commentCopyState\.count\}/);
 assert.match(panelSource, /elements\.captionList\.scrollTop = scrollTop;/);
 assert.doesNotMatch(panelSource, /innerHTML/);
 assert.match(panelSource, /actionType: "START_AI_TRANSCRIBE"/);
@@ -211,6 +215,9 @@ assert.match(panelStyles, /box-shadow: inset 2px 0 var\(--accent\)/);
 assert.match(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.body/);
 assert.match(panelStyles, /\.caption-lite-app\[data-theme="dark"\] \{ color-scheme: dark; \}/);
 assert.match(panelStyles, /prefers-reduced-motion: reduce/);
+// The language select shrinks instead of sliding under the buttons beside it.
+assert.match(panelStyles, /\.select-wrap \{[^}]*flex: 0 1 auto;[^}]*min-width: 0;/s);
+assert.match(panelStyles, /\nselect \{[^}]*width: 100%;[^}]*max-width: 132px;/s);
 assert.doesNotMatch(panelStyles, /\.caption-lite-app\.embedded\.collapsed \.footer/);
 
 const serviceWorkerSource = await readFile(resolve(projectRoot, "src/service-worker.js"), "utf8");

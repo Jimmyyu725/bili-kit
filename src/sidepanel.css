@@ -116,8 +116,10 @@ h1 {
   flex: 1;
 }
 
+/* The only header control that gives way when the row runs out of room. */
 .select-wrap {
   position: relative;
+  flex: 0 1 auto;
   min-width: 0;
   margin-right: 4px;
 }
@@ -141,6 +143,7 @@ h1 {
 select {
   appearance: none;
   display: block;
+  width: 100%;
   max-width: 132px;
   height: 28px;
   padding: 0 24px 0 10px;
@@ -585,6 +588,14 @@ mark {
   gap: 8px;
   padding: 8px;
   border-top: 1px solid var(--line);
+  container-type: inline-size;
+}
+
+.action-group { flex: none; }
+
+/* A narrow side panel has no room for the download icons next to the comment button. */
+@container (max-width: 316px) {
+  .action-group [data-icon="download"] { display: none; }
 }
 
 .action-group {
@@ -614,6 +625,7 @@ mark {
 .footer button:disabled { color: var(--text-3); }
 
 .footer .copy-comments-button {
+  flex: 0 1 auto;
   min-width: 0;
   height: 32px;
   background: var(--bg-subtle);
